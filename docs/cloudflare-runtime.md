@@ -79,7 +79,8 @@ The native CLI can retrieve that metadata from a Rust app with
 same metadata in `agentic-harness build --target cloudflare` to write:
 
 - `dist/_entry.js`: Worker entrypoint and Durable Object routing module.
-- `dist/wrangler.jsonc`: Durable Object binding and SQLite migration config.
+- `dist/wrangler.jsonc`: Worker main module, compatibility date, Durable
+  Object binding, and SQLite migration config.
 - `dist/cloudflare-manifest.json`: raw Worker routing metadata.
 - `dist/agentic_harness_worker.js`: Worker-side JSON parsing, synchronous
   responses, SSE responses, webhook acceptance, and Durable Object SQL-backed
@@ -145,8 +146,8 @@ A real Cloudflare target needs these pieces:
 ## Current Supported Targets
 
 - `native`: builds and runs the native Rust server artifact.
-- `node`: compatibility alias that still builds and runs the native Rust server
-  artifact.
+- `node`: Node host package that launches the native Rust server artifact with
+  `node server.mjs`.
 - `cloudflare`: build-only Worker boundary output. It does not run or develop
   locally through the native CLI, and the generated app-adapter contract must be
   replaced by a Worker-compatible handler runtime before deployment.

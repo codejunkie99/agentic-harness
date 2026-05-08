@@ -33,6 +33,7 @@ results, and HTTP/SSE route handling.
 | Vercel Sandbox | Hosted coding target | Provides a real Linux-style environment for filesystem, shell, dependency install, tests, and isolated code changes. |
 | Daytona/E2B/other remote sandbox | Hosted coding target | Same role as Vercel Sandbox: isolate shell and filesystem work from the host. |
 | Native HTTP server | Self-hosted API target | Useful when another app or service invokes agents over HTTP/SSE. |
+| Node host package | Node-oriented host target | Starts the native Rust server through `server.mjs` on platforms that expect a Node entrypoint. |
 | Cloudflare Workers | Edge/control target | Good for webhooks, route metadata, small control endpoints, and Durable Object routing; not the default place to run coding work. |
 
 ## Why Cloudflare Is Not Central
@@ -71,6 +72,11 @@ let session = ctx.session_with_id_and_env("project", sandbox_env);
 ```
 
 That keeps prompts and model context separate from provider credentials.
+
+When a provider can expose the documented HTTP protocol directly, use
+`SandboxConnector::vercel`, `SandboxConnector::daytona`, or
+`SandboxConnector::e2b` to construct the `HttpSessionEnv` bridge without writing
+provider boilerplate.
 
 ## Agentic Stack Integration
 

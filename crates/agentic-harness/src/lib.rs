@@ -44,16 +44,23 @@ type ToolHandler = dyn Fn(Value) -> Result<String, AgenticHarnessError> + Send +
 
 const BUILTIN_TOOL_NAMES: &[&str] = &["read", "write", "edit", "bash", "grep", "glob", "task"];
 const MAX_TOOL_CALL_ROUNDS: usize = 8;
+const CLOUDFLARE_COMPATIBILITY_DATE: &str = "2026-05-08";
 
 /// Common SDK imports for authoring native Rust agents.
 pub mod prelude {
     pub use crate::{
-        mcp_tools_from_client, run_cli, run_cli_with_args, AgentApp, AgentContext, AgentDefinition,
-        AgentRuntimeConfig, AgenticHarnessError, CommandDef, CompactionOptions, CompactionSettings,
-        FileStat, MemorySessionEnv, ModelClient, ModelMessage, ModelRequest, PromptOptions,
-        PromptResponse, ProviderSettings, ProvidersConfig, ReadOptions, ReadOutput, Role,
-        RuntimeEvent, Session, SessionEnv, ShellOptions, ShellOutput, Skill, ToolCall, ToolDef,
-        ToolSpec,
+        mcp_tools_from_client, AgentApp, AgentContext, AgentDefinition, AgentRuntimeConfig,
+        AgenticHarnessError, CommandDef, CompactionOptions, CompactionSettings, FileStat,
+        MemorySessionEnv, ModelClient, ModelMessage, ModelRequest, PromptOptions, PromptResponse,
+        ProviderSettings, ProvidersConfig, ReadOptions, ReadOutput, Role, RuntimeEvent,
+        SandboxConnector, SandboxProvider, Session, SessionEnv, ShellOptions, ShellOutput, Skill,
+        ToolCall, ToolDef, ToolSpec, VirtualSessionEnv,
+    };
+    #[cfg(feature = "native")]
+    pub use crate::{
+        run_cli, run_cli_with_args, RepoInspection, SoftwareCheck, SoftwareCheckResult,
+        SoftwareCommit, SoftwareInstruction, SoftwarePatch, SoftwarePlan, SoftwarePullRequest,
+        SoftwareSummary, SoftwareWorkspace,
     };
 }
 
@@ -420,6 +427,445 @@ pub struct ReadOutput {
     pub bytes_read: usize,
     pub total_bytes: usize,
     pub truncated: bool,
+}
+
+/// Repository instruction file loaded by the software lifecycle SDK.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwareInstruction {
+    pub path: String,
+    pub content: String,
+}
+
+/// Snapshot of repository context before a software-agent run edits files.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepoInspection {
+    pub root: PathBuf,
+    pub root_files: Vec<String>,
+    pub project_files: Vec<String>,
+    pub instructions: Vec<SoftwareInstruction>,
+    pub git_status: String,
+    pub git_diff_stat: String,
+    pub git_changed_files: Vec<String>,
+}
+
+/// Shell check that a software-agent run should satisfy.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwareCheck {
+    pub command: String,
+}
+
+#[cfg(feature = "native")]
+impl SoftwareCheck {
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+        }
+    }
+}
+
+/// Concrete plan for a software-agent run.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwarePlan {
+    pub prompt: String,
+    pub steps: Vec<String>,
+    pub checks: Vec<SoftwareCheck>,
+}
+
+/// Result of applying a patch to a workspace.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwarePatch {
+    pub path: PathBuf,
+    pub success: bool,
+    pub files: Vec<String>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Result of running a software lifecycle check.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwareCheckResult {
+    pub command: String,
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Human and machine summary of a software-agent run.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwareSummary {
+    pub prompt: String,
+    pub changed_files: Vec<String>,
+    pub checks: Vec<SoftwareCheckResult>,
+    pub text: String,
+}
+
+/// Result of committing a verified software-agent change.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwareCommit {
+    pub message: String,
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Result of opening a pull request for a verified software-agent change.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SoftwarePullRequest {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Local software lifecycle API for agents that build and maintain repositories.
+#[cfg(feature = "native")]
+#[derive(Debug, Clone)]
+pub struct SoftwareWorkspace {
+    root: PathBuf,
+}
+
+#[cfg(feature = "native")]
+impl SoftwareWorkspace {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self { root: root.into() }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn inspect_repo(&self) -> Result<RepoInspection, AgenticHarnessError> {
+        Ok(RepoInspection {
+            root: self
+                .root
+                .canonicalize()
+                .unwrap_or_else(|_| self.root.clone()),
+            root_files: software_root_files(&self.root)?,
+            project_files: software_project_files(&self.root),
+            instructions: self.read_instructions()?,
+            git_status: software_git_output(&self.root, &["status", "--short"], "git status"),
+            git_diff_stat: software_git_output(&self.root, &["diff", "--stat"], "git diff --stat"),
+            git_changed_files: software_git_changed_files(&self.root),
+        })
+    }
+
+    pub fn read_instructions(&self) -> Result<Vec<SoftwareInstruction>, AgenticHarnessError> {
+        let mut instructions = Vec::new();
+        for relative in ["AGENTS.md", "CLAUDE.md"] {
+            let path = self.root.join(relative);
+            if path.exists() {
+                instructions.push(SoftwareInstruction {
+                    path: relative.to_string(),
+                    content: fs::read_to_string(path)?,
+                });
+            }
+        }
+        Ok(instructions)
+    }
+
+    pub fn create_plan(
+        &self,
+        prompt: impl Into<String>,
+        checks: Vec<SoftwareCheck>,
+    ) -> Result<SoftwarePlan, AgenticHarnessError> {
+        let prompt = prompt.into();
+        let mut steps = vec![
+            "Inspect repository state, project files, and instruction files.".to_string(),
+            "Plan the smallest focused change that satisfies the prompt.".to_string(),
+            "Apply edits as a patch or direct workspace change.".to_string(),
+        ];
+        if checks.is_empty() {
+            steps.push("Record that no checks were configured.".to_string());
+        } else {
+            steps.push(format!(
+                "Run checks: {}.",
+                checks
+                    .iter()
+                    .map(|check| check.command.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ));
+        }
+        steps.push("Summarize changes, checks, and remaining risk.".to_string());
+        Ok(SoftwarePlan {
+            prompt,
+            steps,
+            checks,
+        })
+    }
+
+    pub fn apply_patch(&self, patch: &Path) -> Result<SoftwarePatch, AgenticHarnessError> {
+        let files = software_patch_files(patch);
+        let output = Command::new("git")
+            .arg("apply")
+            .arg("--whitespace=nowarn")
+            .arg(patch)
+            .current_dir(&self.root)
+            .output()?;
+        Ok(SoftwarePatch {
+            path: patch.to_path_buf(),
+            success: output.status.success(),
+            files,
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+
+    pub fn run_checks(
+        &self,
+        checks: &[SoftwareCheck],
+    ) -> Result<Vec<SoftwareCheckResult>, AgenticHarnessError> {
+        checks
+            .iter()
+            .map(|check| self.run_check(check))
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    pub fn summarize_changes(
+        &self,
+        prompt: impl Into<String>,
+        checks: &[SoftwareCheckResult],
+    ) -> Result<SoftwareSummary, AgenticHarnessError> {
+        let prompt = prompt.into();
+        let changed_files = software_git_changed_files(&self.root);
+        let mut text = String::new();
+        text.push_str(&format!("Prompt: {prompt}\n"));
+        text.push_str("Changed files:\n");
+        if changed_files.is_empty() {
+            text.push_str("- none\n");
+        } else {
+            for file in &changed_files {
+                text.push_str(&format!("- {file}\n"));
+            }
+        }
+        text.push_str("Checks:\n");
+        if checks.is_empty() {
+            text.push_str("- none\n");
+        } else {
+            for check in checks {
+                text.push_str(&format!(
+                    "- {}: {}\n",
+                    check.command,
+                    if check.success { "passed" } else { "failed" }
+                ));
+            }
+        }
+        Ok(SoftwareSummary {
+            prompt,
+            changed_files,
+            checks: checks.to_vec(),
+            text,
+        })
+    }
+
+    pub fn repair_failure(
+        &self,
+        prompt: impl Into<String>,
+        failed_checks: &[SoftwareCheckResult],
+    ) -> Result<SoftwarePlan, AgenticHarnessError> {
+        let prompt = prompt.into();
+        let checks = failed_checks
+            .iter()
+            .map(|result| SoftwareCheck::new(result.command.clone()))
+            .collect::<Vec<_>>();
+        let mut steps = vec![
+            "Inspect failed checks before editing.".to_string(),
+            "Read the smallest source and test files related to the first failure.".to_string(),
+        ];
+        if failed_checks.is_empty() {
+            steps.push("No failed checks were provided; inspect the repository and ask for the failing command.".to_string());
+        } else {
+            for result in failed_checks {
+                steps.push(format!(
+                    "Repair `{}` which exited with {:?}; stderr excerpt: {}",
+                    result.command,
+                    result.exit_code,
+                    result.stderr.chars().take(240).collect::<String>()
+                ));
+            }
+        }
+        steps.push("Apply the smallest patch and rerun the failed checks.".to_string());
+        steps.push("Summarize the fix and any remaining risk.".to_string());
+        Ok(SoftwarePlan {
+            prompt,
+            steps,
+            checks,
+        })
+    }
+
+    pub fn commit(&self, message: &str) -> Result<SoftwareCommit, AgenticHarnessError> {
+        let add = Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(&self.root)
+            .output()?;
+        if !add.status.success() {
+            return Ok(SoftwareCommit {
+                message: message.to_string(),
+                success: false,
+                stdout: String::from_utf8_lossy(&add.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&add.stderr).to_string(),
+            });
+        }
+        let output = Command::new("git")
+            .args(["commit", "-m", message])
+            .current_dir(&self.root)
+            .output()?;
+        Ok(SoftwareCommit {
+            message: message.to_string(),
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+
+    pub fn open_pull_request(&self) -> Result<SoftwarePullRequest, AgenticHarnessError> {
+        let output = Command::new("gh")
+            .args(["pr", "create", "--fill"])
+            .current_dir(&self.root)
+            .output()?;
+        Ok(SoftwarePullRequest {
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+
+    fn run_check(&self, check: &SoftwareCheck) -> Result<SoftwareCheckResult, AgenticHarnessError> {
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(&check.command)
+            .current_dir(&self.root)
+            .output()?;
+        Ok(SoftwareCheckResult {
+            command: check.command.clone(),
+            success: output.status.success(),
+            exit_code: output.status.code(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+}
+
+#[cfg(feature = "native")]
+fn software_root_files(root: &Path) -> Result<Vec<String>, AgenticHarnessError> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if matches!(name.as_str(), ".git" | "target" | "node_modules") {
+            continue;
+        }
+        let suffix = if entry.file_type()?.is_dir() { "/" } else { "" };
+        files.push(format!("{name}{suffix}"));
+    }
+    files.sort();
+    Ok(files)
+}
+
+#[cfg(feature = "native")]
+fn software_project_files(root: &Path) -> Vec<String> {
+    [
+        "Cargo.toml",
+        "Cargo.lock",
+        "package.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "package-lock.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "go.mod",
+        "Makefile",
+    ]
+    .into_iter()
+    .filter(|relative| root.join(relative).exists())
+    .map(ToOwned::to_owned)
+    .collect()
+}
+
+#[cfg(feature = "native")]
+fn software_git_output(root: &Path, args: &[&str], label: &str) -> String {
+    match Command::new("git").args(args).current_dir(root).output() {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_string(),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.to_ascii_lowercase().contains("not a git repository") {
+                format!("{label} failed: not a git repository")
+            } else {
+                format!("{label} failed: {}", stderr.trim())
+            }
+        }
+        Err(err) => format!("{label} unavailable: {err}"),
+    }
+}
+
+#[cfg(feature = "native")]
+fn software_git_changed_files(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    let diff = software_git_output(root, &["diff", "--name-only"], "git diff --name-only");
+    if !diff.starts_with("git diff --name-only failed:")
+        && !diff.starts_with("git diff --name-only unavailable:")
+    {
+        files.extend(
+            diff.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(ToOwned::to_owned),
+        );
+    }
+    let status = software_git_output(root, &["status", "--short"], "git status");
+    if !status.starts_with("git status failed:") && !status.starts_with("git status unavailable:") {
+        for line in status.lines() {
+            if line.len() < 4 {
+                continue;
+            }
+            let mut file = line[3..].trim();
+            if let Some((_, renamed_to)) = file.rsplit_once(" -> ") {
+                file = renamed_to.trim();
+            }
+            let file = file.trim_matches('"');
+            if !file.is_empty() && !files.iter().any(|existing| existing == file) {
+                files.push(file.to_string());
+            }
+        }
+    }
+    files
+}
+
+#[cfg(feature = "native")]
+fn software_patch_files(path: &Path) -> Vec<String> {
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut files = Vec::new();
+    for line in content.lines() {
+        if let Some(file) = line.strip_prefix("+++ b/") {
+            if !files.iter().any(|existing| existing == file) {
+                files.push(file.to_string());
+            }
+        } else if let Some(rest) = line.strip_prefix("diff --git ") {
+            if let Some(file) = rest
+                .split_whitespace()
+                .nth(1)
+                .and_then(|path| path.strip_prefix("b/"))
+            {
+                if !files.iter().any(|existing| existing == file) {
+                    files.push(file.to_string());
+                }
+            }
+        }
+    }
+    files
 }
 
 /// Explicit host command exposed to native agents.
@@ -2243,6 +2689,212 @@ impl SessionEnv for MemorySessionEnv {
     }
 }
 
+/// Hostless virtual session environment with an in-memory filesystem and a
+/// small built-in command set.
+#[derive(Debug, Clone)]
+pub struct VirtualSessionEnv {
+    inner: MemorySessionEnv,
+}
+
+impl VirtualSessionEnv {
+    pub fn new(cwd: impl AsRef<Path>) -> Self {
+        Self {
+            inner: MemorySessionEnv::new(cwd),
+        }
+    }
+
+    pub fn with_file(
+        self,
+        path: impl AsRef<str>,
+        content: impl AsRef<[u8]>,
+    ) -> Result<Self, AgenticHarnessError> {
+        self.inner.write_file(path.as_ref(), content.as_ref())?;
+        Ok(self)
+    }
+
+    fn scoped(&self, options: &ShellOptions) -> MemorySessionEnv {
+        let cwd = options
+            .cwd
+            .as_deref()
+            .map(|cwd| {
+                if cwd.is_absolute() {
+                    normalize_memory_path(cwd)
+                } else {
+                    normalize_memory_path(&self.inner.cwd.join(cwd))
+                }
+            })
+            .unwrap_or_else(|| self.inner.cwd.clone());
+        MemorySessionEnv {
+            cwd,
+            fs: self.inner.fs.clone(),
+        }
+    }
+
+    fn unsupported(command: &str) -> ShellOutput {
+        ShellOutput {
+            stdout: String::new(),
+            stderr: format!(
+                "virtual shell command is not supported: {command}\nSupported commands: pwd, ls, cat, echo >, mkdir, rm, grep\n"
+            ),
+            exit_code: 127,
+        }
+    }
+}
+
+impl Default for VirtualSessionEnv {
+    fn default() -> Self {
+        Self::new("/workspace")
+    }
+}
+
+impl SessionEnv for VirtualSessionEnv {
+    fn exec(
+        &self,
+        command: &str,
+        options: ShellOptions,
+    ) -> Result<ShellOutput, AgenticHarnessError> {
+        let scoped = self.scoped(&options);
+        let command = command.trim();
+        if command.is_empty() {
+            return Ok(ShellOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: 0,
+            });
+        }
+        if command == "pwd" {
+            return Ok(ShellOutput {
+                stdout: format!("{}\n", scoped.cwd().display()),
+                stderr: String::new(),
+                exit_code: 0,
+            });
+        }
+        if let Some(rest) = command.strip_prefix("cat ") {
+            return Ok(match scoped.read_file(rest.trim()) {
+                Ok(stdout) => ShellOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: 0,
+                },
+                Err(err) => ShellOutput {
+                    stdout: String::new(),
+                    stderr: format!("{err}\n"),
+                    exit_code: 1,
+                },
+            });
+        }
+        if let Some(rest) = command.strip_prefix("ls") {
+            let path = rest.trim();
+            let entries = scoped.readdir(if path.is_empty() { "." } else { path })?;
+            let mut stdout = entries.join("\n");
+            if !stdout.is_empty() {
+                stdout.push('\n');
+            }
+            return Ok(ShellOutput {
+                stdout,
+                stderr: String::new(),
+                exit_code: 0,
+            });
+        }
+        if let Some((left, path)) = command.split_once('>') {
+            if let Some(text) = left.trim().strip_prefix("echo ") {
+                let text = text.trim().trim_matches('"').trim_matches('\'');
+                scoped.write_file(path.trim(), format!("{text}\n").as_bytes())?;
+                return Ok(ShellOutput {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: 0,
+                });
+            }
+        }
+        if let Some(rest) = command.strip_prefix("mkdir ") {
+            for path in rest.split_whitespace().filter(|part| *part != "-p") {
+                scoped.mkdir(path)?;
+            }
+            return Ok(ShellOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: 0,
+            });
+        }
+        if let Some(rest) = command.strip_prefix("rm ") {
+            let mut recursive = false;
+            for part in rest.split_whitespace() {
+                if part.starts_with('-') {
+                    recursive |= part.contains('r');
+                    continue;
+                }
+                scoped.rm(part, recursive)?;
+            }
+            return Ok(ShellOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: 0,
+            });
+        }
+        if let Some(rest) = command.strip_prefix("grep ") {
+            let mut parts = rest.split_whitespace();
+            let needle = parts.next().unwrap_or_default();
+            let path = parts.next().unwrap_or_default();
+            if needle.is_empty() || path.is_empty() {
+                return Ok(Self::unsupported(command));
+            }
+            let content = scoped.read_file(path)?;
+            let matches = content
+                .lines()
+                .filter(|line| line.contains(needle))
+                .collect::<Vec<_>>();
+            let mut stdout = matches.join("\n");
+            if !stdout.is_empty() {
+                stdout.push('\n');
+            }
+            let exit_code = if stdout.is_empty() { 1 } else { 0 };
+            return Ok(ShellOutput {
+                stdout,
+                stderr: String::new(),
+                exit_code,
+            });
+        }
+        Ok(Self::unsupported(command))
+    }
+
+    fn read_file(&self, path: &str) -> Result<String, AgenticHarnessError> {
+        self.inner.read_file(path)
+    }
+
+    fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgenticHarnessError> {
+        self.inner.write_file(path, content)
+    }
+
+    fn stat(&self, path: &str) -> Result<FileStat, AgenticHarnessError> {
+        self.inner.stat(path)
+    }
+
+    fn readdir(&self, path: &str) -> Result<Vec<String>, AgenticHarnessError> {
+        self.inner.readdir(path)
+    }
+
+    fn exists(&self, path: &str) -> Result<bool, AgenticHarnessError> {
+        self.inner.exists(path)
+    }
+
+    fn mkdir(&self, path: &str) -> Result<(), AgenticHarnessError> {
+        self.inner.mkdir(path)
+    }
+
+    fn rm(&self, path: &str, recursive: bool) -> Result<(), AgenticHarnessError> {
+        self.inner.rm(path, recursive)
+    }
+
+    fn cwd(&self) -> &Path {
+        self.inner.cwd()
+    }
+
+    fn resolve_path(&self, path: &str) -> PathBuf {
+        self.inner.resolve_path(path)
+    }
+}
+
 /// Raw response returned by an [`HttpSessionTransport`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpSessionTransportResponse {
@@ -2442,6 +3094,129 @@ impl SessionEnv for HttpSessionEnv {
         } else {
             self.cwd.join(path)
         }
+    }
+}
+
+/// Known hosted sandbox providers for first-class `HttpSessionEnv` bridges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SandboxProvider {
+    Vercel,
+    Daytona,
+    E2b,
+    Custom(String),
+}
+
+impl SandboxProvider {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Vercel => "vercel",
+            Self::Daytona => "daytona",
+            Self::E2b => "e2b",
+            Self::Custom(name) => name,
+        }
+    }
+}
+
+/// Provider-scoped HTTP sandbox connector for hosted coding environments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxConnector {
+    provider: SandboxProvider,
+    endpoint: String,
+    cwd: PathBuf,
+    headers: BTreeMap<String, String>,
+}
+
+impl SandboxConnector {
+    pub fn vercel(endpoint: impl Into<String>, cwd: impl AsRef<Path>) -> Self {
+        Self::new(SandboxProvider::Vercel, endpoint, cwd)
+    }
+
+    pub fn daytona(endpoint: impl Into<String>, cwd: impl AsRef<Path>) -> Self {
+        Self::new(SandboxProvider::Daytona, endpoint, cwd)
+    }
+
+    pub fn e2b(endpoint: impl Into<String>, cwd: impl AsRef<Path>) -> Self {
+        Self::new(SandboxProvider::E2b, endpoint, cwd)
+    }
+
+    pub fn custom(
+        provider: impl Into<String>,
+        endpoint: impl Into<String>,
+        cwd: impl AsRef<Path>,
+    ) -> Self {
+        Self::new(SandboxProvider::Custom(provider.into()), endpoint, cwd)
+    }
+
+    pub fn new(
+        provider: SandboxProvider,
+        endpoint: impl Into<String>,
+        cwd: impl AsRef<Path>,
+    ) -> Self {
+        Self {
+            provider,
+            endpoint: endpoint.into(),
+            cwd: cwd.as_ref().to_path_buf(),
+            headers: BTreeMap::new(),
+        }
+    }
+
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn provider(&self) -> &SandboxProvider {
+        &self.provider
+    }
+
+    #[cfg(feature = "native")]
+    pub fn into_session_env(self) -> HttpSessionEnv {
+        self.apply_headers(HttpSessionEnv::new(self.endpoint.clone(), &self.cwd))
+    }
+
+    pub fn into_session_env_with_transport<T: HttpSessionTransport + 'static>(
+        self,
+        transport: T,
+    ) -> HttpSessionEnv {
+        let provider = self.provider.as_str().to_string();
+        let transport = ProviderTaggedSessionTransport {
+            provider,
+            inner: transport,
+        };
+        self.apply_headers(HttpSessionEnv::with_transport(
+            self.endpoint.clone(),
+            &self.cwd,
+            transport,
+        ))
+    }
+
+    fn apply_headers(&self, mut env: HttpSessionEnv) -> HttpSessionEnv {
+        env = env.header("x-agentic-harness-sandbox-provider", self.provider.as_str());
+        for (name, value) in &self.headers {
+            env = env.header(name, value);
+        }
+        env
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ProviderTaggedSessionTransport<T> {
+    provider: String,
+    inner: T,
+}
+
+impl<T: HttpSessionTransport> HttpSessionTransport for ProviderTaggedSessionTransport<T> {
+    fn post_json(
+        &self,
+        url: &str,
+        headers: &BTreeMap<String, String>,
+        body: &Value,
+    ) -> Result<HttpSessionTransportResponse, AgenticHarnessError> {
+        let mut body = body.clone();
+        if let Value::Object(object) = &mut body {
+            object.insert("provider".to_string(), json!(self.provider));
+        }
+        self.inner.post_json(url, headers, &body)
     }
 }
 
@@ -3092,6 +3867,7 @@ impl CloudflareWorkerManifest {
             "$schema": "https://workers.cloudflare.com/schema/wrangler.json",
             "name": name.into(),
             "main": main.into(),
+            "compatibility_date": CLOUDFLARE_COMPATIBILITY_DATE,
             "durable_objects": {
                 "bindings": bindings
             },

@@ -23,6 +23,7 @@ fn collect_previous_name_offenders(
         .components()
         .any(|component| matches!(component.as_os_str().to_str(), Some(".git" | "target")))
         || relative.starts_with("examples/hello-world/.agentic-harness/runs")
+        || relative == Path::new(&["docs/", "fl", "ue", "-migration.md"].concat())
     {
         return;
     }
@@ -163,6 +164,9 @@ fn new_scaffolds_source_style_agent_templates() {
         ("coding", "code"),
         ("code-review", "code-review"),
         ("test-fixer", "test-fixer"),
+        ("docs-writer", "docs-writer"),
+        ("refactor-agent", "refactor-agent"),
+        ("release-agent", "release-agent"),
         ("repo-analyst", "repo-analyst"),
         ("support", "support"),
     ];
@@ -793,7 +797,7 @@ fn template_registry_lists_machine_readable_json() {
     );
     let body: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
     assert!(body["workspace"].as_str().unwrap().contains(".tmp"));
-    assert_eq!(body["counts"]["builtIn"], 8);
+    assert_eq!(body["counts"]["builtIn"], 11);
     assert_eq!(body["counts"]["team"], 1);
     assert!(body["templates"]
         .as_array()
@@ -816,6 +820,27 @@ fn template_registry_lists_machine_readable_json() {
         .any(|template| template["name"] == "test-fixer"
             && template["source"] == "built-in"
             && template["agent"] == "test-fixer"));
+    assert!(body["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|template| template["name"] == "docs-writer"
+            && template["source"] == "built-in"
+            && template["agent"] == "docs-writer"));
+    assert!(body["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|template| template["name"] == "refactor-agent"
+            && template["source"] == "built-in"
+            && template["agent"] == "refactor-agent"));
+    assert!(body["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|template| template["name"] == "release-agent"
+            && template["source"] == "built-in"
+            && template["agent"] == "release-agent"));
     assert!(body["templates"]
         .as_array()
         .unwrap()
@@ -2474,16 +2499,29 @@ fn code_command_runs_the_coding_template_with_one_short_command() {
 }
 
 #[test]
-fn start_alias_runs_the_coding_flow() {
-    let output = Command::new(agentic_harness_bin())
+fn start_opens_the_guided_tui_front_door() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("start-front-door-agent");
+
+    let scaffold = Command::new(agentic_harness_bin())
         .args([
-            "start",
-            "--workspace",
-            "../../examples/hello-world",
-            "--prompt",
-            "Inspect the example",
-            "--no-tests",
+            "new",
+            project.to_str().unwrap(),
+            "--name",
+            "start-front-door-agent",
+            "--template",
+            "coding",
         ])
+        .output()
+        .unwrap();
+    assert!(
+        scaffold.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&scaffold.stderr)
+    );
+
+    let output = Command::new(agentic_harness_bin())
+        .args(["start", "--workspace", project.to_str().unwrap(), "--plain"])
         .output()
         .unwrap();
 
@@ -2493,8 +2531,20 @@ fn start_alias_runs_the_coding_flow() {
         String::from_utf8_lossy(&output.stderr)
     );
     let body = String::from_utf8_lossy(&output.stdout);
-    assert!(body.contains("\"prompt\": \"Inspect the example\""));
-    assert!(body.contains("Coding loop inspected the repository"));
+    assert!(body.contains("Agentic Harness Wizard"));
+    assert!(body.contains("Start coding"));
+    assert!(body.contains("Create or install template"));
+    assert!(body.contains("Set up LLM authoring environment"));
+    assert!(body.contains("Set up sandbox"));
+    assert!(body.contains(&format!(
+        "Workspace: {}",
+        project.canonicalize().unwrap().display()
+    )));
+    assert!(body.contains(&format!(
+        "agentic-harness code --workspace {}",
+        project.display()
+    )));
+    assert!(!project.join(".agentic-harness/runs/latest.json").exists());
 }
 
 #[test]
@@ -2628,6 +2678,104 @@ fn code_command_writes_latest_summary_and_inspect_reads_it() {
     let json: serde_json::Value = serde_json::from_slice(&inspect_json.stdout).unwrap();
     assert_eq!(json["prompt"], "Inspect the generated project");
     assert_eq!(json["agent"]["status"], "passed");
+}
+
+#[test]
+fn code_command_writes_mandatory_run_artifact_bundle() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("artifact-bundle-agent");
+
+    let scaffold = Command::new(agentic_harness_bin())
+        .args([
+            "new",
+            project.to_str().unwrap(),
+            "--name",
+            "artifact-bundle-agent",
+            "--template",
+            "coding",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        scaffold.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&scaffold.stderr)
+    );
+    fs::copy(
+        std::env::current_dir().unwrap().join("../../Cargo.lock"),
+        project.join("Cargo.lock"),
+    )
+    .unwrap();
+
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "code",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--id",
+            "artifact-run",
+            "--prompt",
+            "Inspect the generated project and record artifacts",
+            "--no-tests",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run_dir = project.join(".agentic-harness/runs/artifact-run");
+    for name in [
+        "run.json",
+        "summary.md",
+        "events.jsonl",
+        "diff.patch",
+        "checks.json",
+        "agent-instructions.md",
+    ] {
+        assert!(
+            run_dir.join(name).exists(),
+            "missing run artifact {}",
+            run_dir.join(name).display()
+        );
+    }
+
+    let run_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(run_dir.join("run.json")).unwrap()).unwrap();
+    assert_eq!(run_json["id"], "artifact-run");
+    assert_eq!(
+        run_json["prompt"],
+        "Inspect the generated project and record artifacts"
+    );
+    assert_eq!(run_json["artifacts"]["summary"], "summary.md");
+    assert_eq!(run_json["artifacts"]["events"], "events.jsonl");
+    assert_eq!(run_json["artifacts"]["diff"], "diff.patch");
+    assert_eq!(run_json["artifacts"]["checks"], "checks.json");
+    assert_eq!(
+        run_json["artifacts"]["agentInstructions"],
+        "agent-instructions.md"
+    );
+
+    let checks_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(run_dir.join("checks.json")).unwrap()).unwrap();
+    assert_eq!(checks_json.as_array().unwrap().len(), 0);
+
+    let events = fs::read_to_string(run_dir.join("events.jsonl")).unwrap();
+    assert!(events
+        .lines()
+        .any(|line| line.contains(r#""phase":"inspect""#)));
+    for line in events.lines() {
+        serde_json::from_str::<serde_json::Value>(line).unwrap();
+    }
+
+    let instructions = fs::read_to_string(run_dir.join("agent-instructions.md")).unwrap();
+    assert!(instructions.contains("# Agentic Harness Agent Instructions"));
+    assert!(instructions.contains("Inspect the generated project and record artifacts"));
+    assert!(instructions.contains("Approval gates"));
+    assert!(instructions
+        .contains("Do not commit or open a pull request unless the run explicitly requested it."));
 }
 
 #[test]
@@ -3001,6 +3149,230 @@ index 0000000..5556ed2
         .unwrap()
         .iter()
         .any(|command| command.as_str().unwrap().contains("--prompt")));
+}
+
+#[test]
+fn code_command_blocks_denied_patch_paths_before_apply() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = std::env::current_dir()
+        .unwrap()
+        .join("../../examples/hello-world")
+        .canonicalize()
+        .unwrap();
+    let project = temp.path().join("denied-path-agent");
+    copy_test_workspace(&source, &project);
+    let crate_path = std::env::current_dir()
+        .unwrap()
+        .join("../../crates/agentic-harness")
+        .canonicalize()
+        .unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "denied-path-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+agentic-harness = {{ path = "{}" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+"#,
+            crate_path.display()
+        ),
+    )
+    .unwrap();
+    fs::copy(
+        std::env::current_dir().unwrap().join("../../Cargo.lock"),
+        project.join("Cargo.lock"),
+    )
+    .unwrap();
+    let original = fs::read_to_string(project.join("src/main.rs")).unwrap();
+    let patch = temp.path().join("denied.patch");
+    fs::write(
+        &patch,
+        r#"diff --git a/src/main.rs b/src/main.rs
+index 5b3d45e..e9894ec 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,4 @@
++// denied mutation
+ use agentic_harness::{run_cli, AgentApp, AgentContext, AgentDefinition, AgenticHarnessError};
+ use serde::Deserialize;
+ use serde_json::json;
+"#,
+    )
+    .unwrap();
+
+    let summary_json = temp.path().join("denied-summary.json");
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "code",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--prompt",
+            "Try to change a denied file",
+            "--apply",
+            patch.to_str().unwrap(),
+            "--deny-path",
+            "src/",
+            "--no-tests",
+            "--summary-json",
+            summary_json.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        fs::read_to_string(project.join("src/main.rs")).unwrap(),
+        original
+    );
+    let body: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(summary_json).unwrap()).unwrap();
+    assert_eq!(body["patches"][0]["status"], "blocked");
+    assert!(body["patches"][0]["stderr"]
+        .as_str()
+        .unwrap()
+        .contains("denied path src/main.rs"));
+    assert_eq!(body["policy"]["denyPaths"][0], "src/");
+    assert_eq!(body["loop"][2]["status"], "failed");
+}
+
+#[test]
+fn code_command_requires_dependency_approval_for_manifest_changes() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = std::env::current_dir()
+        .unwrap()
+        .join("../../examples/hello-world")
+        .canonicalize()
+        .unwrap();
+    let project = temp.path().join("dependency-gate-agent");
+    copy_test_workspace(&source, &project);
+    let crate_path = std::env::current_dir()
+        .unwrap()
+        .join("../../crates/agentic-harness")
+        .canonicalize()
+        .unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        format!(
+            r#"[package]
+name = "dependency-gate-agent"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+agentic-harness = {{ path = "{}" }}
+serde = {{ version = "1.0", features = ["derive"] }}
+serde_json = "1.0"
+"#,
+            crate_path.display()
+        ),
+    )
+    .unwrap();
+    fs::copy(
+        std::env::current_dir().unwrap().join("../../Cargo.lock"),
+        project.join("Cargo.lock"),
+    )
+    .unwrap();
+    let original = fs::read_to_string(project.join("Cargo.toml")).unwrap();
+    let patch = temp.path().join("dependency.patch");
+    fs::write(
+        &patch,
+        r#"diff --git a/Cargo.toml b/Cargo.toml
+index 4dc0536..9329bf5 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -9,3 +9,4 @@ publish = false
+ agentic-harness = { path = "/tmp/agentic-harness" }
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = "1.0"
++regex = "1.0"
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "code",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--prompt",
+            "Try to change dependencies",
+            "--apply",
+            patch.to_str().unwrap(),
+            "--no-tests",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert_eq!(
+        fs::read_to_string(project.join("Cargo.toml")).unwrap(),
+        original
+    );
+    let run_json: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(project.join(".agentic-harness/runs/code/run.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(run_json["patches"][0]["status"], "blocked");
+    assert!(run_json["patches"][0]["stderr"]
+        .as_str()
+        .unwrap()
+        .contains("dependency change Cargo.toml requires --approve-dependencies"));
+    assert_eq!(run_json["policy"]["approveDependencies"], false);
+}
+
+#[test]
+fn code_command_blocks_checks_above_the_configured_command_risk() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("risk-gate-agent");
+
+    let scaffold = Command::new(agentic_harness_bin())
+        .args([
+            "new",
+            project.to_str().unwrap(),
+            "--name",
+            "risk-gate-agent",
+            "--template",
+            "coding",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        scaffold.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&scaffold.stderr)
+    );
+    fs::copy(
+        std::env::current_dir().unwrap().join("../../Cargo.lock"),
+        project.join("Cargo.lock"),
+    )
+    .unwrap();
+
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "code",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--prompt",
+            "Run a risky command",
+            "--test",
+            "rm -rf target",
+            "--max-command-risk",
+            "medium",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check command risk high exceeds max-command-risk medium"));
+    assert!(!project.join(".agentic-harness/runs/code/run.json").exists());
 }
 
 #[test]
@@ -3877,6 +4249,11 @@ fn doctor_reports_ready_generated_project() {
     assert!(body.contains("AGENTS.md: ok"));
     assert!(body.contains("roles: ok"));
     assert!(body.contains("skills: ok"));
+    assert!(body.contains("git repo:"));
+    assert!(body.contains("worktree:"));
+    assert!(body.contains("tests:"));
+    assert!(body.contains("permissions: ok"));
+    assert!(body.contains("recovery: ok"));
     assert!(body.contains("ready: workspace can run with agentic-harness"));
 }
 
@@ -4572,7 +4949,7 @@ fn dashboard_json_exposes_agent_readable_status() {
     );
     let body: serde_json::Value = serde_json::from_slice(&dashboard.stdout).unwrap();
     assert_eq!(body["requiredReady"], true);
-    assert_eq!(body["optionalWarnings"], false);
+    assert_eq!(body["optionalWarnings"], true);
     assert!(body["workspace"]
         .as_str()
         .unwrap()
@@ -4582,6 +4959,16 @@ fn dashboard_json_exposes_agent_readable_status() {
         .unwrap()
         .iter()
         .any(|check| check["label"] == "workspace" && check["ok"] == true));
+    assert!(body["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|check| check["label"] == "git repo"
+            && check["ok"] == false
+            && check["detail"]
+                .as_str()
+                .unwrap()
+                .contains("commit/PR gates need git")));
     assert!(body["templates"]
         .as_array()
         .unwrap()
@@ -4941,7 +5328,7 @@ fn run_loads_env_files_for_native_workspaces() {
 }
 
 #[test]
-fn node_target_is_a_native_compatibility_alias_for_run_and_build() {
+fn node_target_builds_node_host_package_for_native_binary() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = std::env::current_dir()
         .unwrap()
@@ -4991,7 +5378,16 @@ fn node_target_is_a_native_compatibility_alias_for_run_and_build() {
         String::from_utf8_lossy(&build.stderr)
     );
     assert!(output_dir.join("dist/agentic-harness-agent").exists());
-    assert!(String::from_utf8_lossy(&build.stderr).contains("Target: node compatibility"));
+    assert!(output_dir.join("dist/server.mjs").exists());
+    assert!(output_dir.join("dist/package.json").exists());
+    let launcher = fs::read_to_string(output_dir.join("dist/server.mjs")).unwrap();
+    let package: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(output_dir.join("dist/package.json")).unwrap())
+            .unwrap();
+    assert!(launcher.contains("agentic-harness-agent"));
+    assert!(launcher.contains("--agentic-harness-serve"));
+    assert_eq!(package["scripts"]["start"], "node server.mjs");
+    assert!(String::from_utf8_lossy(&build.stderr).contains("Target: node host package"));
 }
 
 #[test]
@@ -5081,6 +5477,7 @@ fn cloudflare_build_generates_non_proxy_worker_artifacts() {
         json!(["assistant", "code", "env", "hello", "shell"])
     );
     assert_eq!(wrangler["main"], "_entry.js");
+    assert_eq!(wrangler["compatibility_date"], "2026-05-08");
     assert_eq!(
         wrangler["durable_objects"]["bindings"][3],
         json!({ "name": "Hello", "class_name": "Hello" })
@@ -5089,6 +5486,73 @@ fn cloudflare_build_generates_non_proxy_worker_artifacts() {
         wrangler["migrations"][3],
         json!({ "tag": "agentic-harness-Hello", "new_sqlite_classes": ["Hello"] })
     );
+}
+
+#[test]
+fn replacement_gap_docs_cover_deploy_connectors_virtual_sandbox_and_migration() {
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let docs = [
+        (
+            "docs/deploy-node.md".to_string(),
+            vec![
+                "agentic-harness build --target node".to_string(),
+                "node server.mjs".to_string(),
+            ],
+        ),
+        (
+            "docs/deploy-cloudflare.md".to_string(),
+            vec![
+                "wrangler deploy".to_string(),
+                "agentic_harness_app.js".to_string(),
+            ],
+        ),
+        (
+            "docs/deploy-github-actions.md".to_string(),
+            vec![
+                "agentic-harness run".to_string(),
+                "GITHUB_TOKEN".to_string(),
+            ],
+        ),
+        (
+            "docs/deploy-gitlab-ci.md".to_string(),
+            vec![
+                "agentic-harness run".to_string(),
+                "CI_JOB_TOKEN".to_string(),
+            ],
+        ),
+        (
+            "docs/connectors.md".to_string(),
+            vec![
+                "SandboxConnector::vercel".to_string(),
+                "HttpSessionEnv".to_string(),
+            ],
+        ),
+        (
+            "docs/virtual-sandbox.md".to_string(),
+            vec!["VirtualSessionEnv".to_string(), "hostless".to_string()],
+        ),
+        (
+            ["docs/", "fl", "ue", "-migration.md"].concat(),
+            vec![
+                ["Fl", "ueContext"].concat(),
+                "AgentContext".to_string(),
+                ["fl", "ue add"].concat(),
+            ],
+        ),
+    ];
+
+    for (path, needles) in docs {
+        let body = fs::read_to_string(root.join(&path)).unwrap_or_else(|err| {
+            panic!("missing {path}: {err}");
+        });
+        for needle in needles {
+            assert!(body.contains(&needle), "{path} should document {needle}");
+        }
+    }
 }
 
 #[test]
@@ -5451,7 +5915,8 @@ fn add_lists_and_prints_native_connector_instructions() {
     assert!(alias_body.contains("Rust-native Vercel Sandbox connector"));
     assert!(alias_body.contains("first-class hosted coding target"));
     assert!(alias_body.contains("Create or reuse a Vercel Sandbox"));
-    assert!(alias_body.contains("ctx.session_with_id_and_env(\"project\", vercel_env)"));
+    assert!(alias_body.contains("SandboxConnector::vercel"));
+    assert!(alias_body.contains("try_session_with_id_and_env(\"project\", env)"));
 
     let piped = Command::new(agentic_harness_bin())
         .args(["add", "daytona"])

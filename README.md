@@ -11,7 +11,9 @@ Native Rust end to end: SDK, CLI, runtime, HTTP dispatch, sessions, tools, works
 </p>
 
 > 📚 **Documentation lives in [`docs/`](docs/).**
-> Architecture, execution targets, runtime config, HTTP SessionEnv protocol, Cloudflare runtime, feature status, and release notes — all there.
+> Architecture, execution targets, runtime config, HTTP SessionEnv protocol,
+> Cloudflare runtime, deployment guides, feature status, and release notes —
+> all there.
 
 ## Workspace
 
@@ -85,17 +87,30 @@ agentic-harness run hello --workspace ./my-agent --id demo \
 
 ### Coding Agent (Local Repo)
 
-The flagship workflow. `agentic-harness code` inspects the repo, reads `AGENTS.md` / `CLAUDE.md`, captures git diff context, drafts a plan, hands the brief to your installed coding LLM, then runs detected checks (`cargo test`, etc.) and optionally commits or opens a PR. No prompt? It defaults to a sensible "smallest safe step" brief.
+The flagship workflow. `agentic-harness start` opens the guided TUI front door;
+`agentic-harness code` is the direct automation path. The coding loop inspects
+the repo, reads `AGENTS.md` / `CLAUDE.md`, captures git diff context, drafts a
+plan, hands the brief to your installed coding LLM, runs detected checks
+(`cargo test`, etc.), and optionally commits or opens a PR. No prompt? It
+defaults to a sensible "smallest safe step" brief.
 
 ```bash
 # Detects whichever of claude / codex / cursor / wind-server you have
 agentic-harness code --workspace . --llm auto \
   --prompt "Add a flag to skip the network call in test mode" \
+  --deny-path .env \
+  --approve-dependencies \
   --commit "feat: --offline flag" \
   --pr
 ```
 
-The harness writes a run-scoped brief to `.agentic-harness/runs/<id>/coding-brief.md`, streams progress, captures the agent result, and saves a structured summary at `.agentic-harness/runs/latest.{md,json}` so a person or another agent can read what happened.
+The harness writes a run-scoped brief to
+`.agentic-harness/runs/<id>/coding-brief.md`, streams progress, captures the
+agent result, and saves both latest summaries and a durable bundle under
+`.agentic-harness/runs/<id>/` (`summary.md`, `run.json`, `events.jsonl`,
+`diff.patch`, `checks.json`, `agent-instructions.md`). Policy flags such as
+`--allow-path`, `--deny-path`, `--max-command-risk`, and
+`--approve-dependencies` gate code mutation before commit or PR handoff.
 
 ### Snapshot Repair (CI)
 
@@ -415,7 +430,7 @@ agentic-harness run hello --workspace . --id test-1 \
 
 ```bash
 agentic-harness build --workspace . --target native      # self-contained Rust binary + manifest.json
-agentic-harness build --workspace . --target node        # alias — still emits the native binary
+agentic-harness build --workspace . --target node        # Node host package around the native binary
 agentic-harness build --workspace . --target cloudflare  # Worker adapter + Durable Object bindings
 ```
 
@@ -428,6 +443,18 @@ agentic-harness doctor    --workspace . --json    # readiness for a workspace
 agentic-harness smoke     --json                  # post-install end-to-end check
 agentic-harness dashboard --workspace . --json    # status, templates, recent runs, next steps
 ```
+
+### Release Packaging
+
+```bash
+agentic-harness package --output dist/packages --json
+agentic-harness release-check --json
+```
+
+`package` stages the current CLI binary into a versioned OS/architecture folder
+with `manifest.json` and `SHA256SUMS`; `release-check` verifies the install
+script, Homebrew formula, changelog, binary-package docs, and release smoke
+checklist before publishing.
 
 ## Why Native Rust
 
@@ -447,6 +474,9 @@ Long-form docs live in [`docs/`](docs/):
 - [Runtime Config](docs/runtime-config.md) — provider defaults, model registration
 - [HTTP SessionEnv Protocol](docs/http-session-env.md) — exact wire format for remote sandboxes
 - [Cloudflare Runtime](docs/cloudflare-runtime.md) — Worker boundary build, Durable Objects, adapter ABI
+- [Node Hosts](docs/deploy-node.md) — `node server.mjs` hosting around the native binary
+- [Sandbox Connectors](docs/connectors.md) — provider-scoped HTTP sandbox connector helpers
+- [Virtual Sandbox](docs/virtual-sandbox.md) — hostless in-memory filesystem and shell subset
 - [Feature Status](docs/feature-status.md) — what's shipped, with code/test/doc evidence
 - [Roadmap](docs/immediate-goals.md) — the next product slice and explicit non-goals
 - [Release Smoke Test](docs/release-smoke-test.md) — clean-machine pre-publish checklist

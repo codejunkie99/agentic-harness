@@ -6,14 +6,16 @@ use agentic_harness::{
     CompactionSettings, FileStat, HttpRequest, HttpSessionEnv, HttpSessionTransport,
     HttpSessionTransportResponse, McpClient, McpTool, McpTransport, MemorySessionEnv, ModelClient,
     ModelMessage, ModelRequest, OpenAiCompatibleModel, PromptOptions, PromptResponse,
-    ProviderSettings, ProvidersConfig, ReadOptions, RuntimeEvent, SessionEnv, ShellOptions,
-    ShellOutput, ToolCall, ToolDef,
+    ProviderSettings, ProvidersConfig, ReadOptions, RuntimeEvent, SandboxConnector,
+    SandboxProvider, SessionEnv, ShellOptions, ShellOutput, SoftwareCheck, SoftwarePullRequest,
+    SoftwareWorkspace, ToolCall, ToolDef, VirtualSessionEnv,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -97,6 +99,130 @@ fn sdk_prelude_exports_common_agent_authoring_types() {
     let _run: fn(AgentApp) -> Result<i32, AgenticHarnessError> = run_cli;
 
     assert_eq!(app.manifest().agents[0].name, "ping");
+}
+
+#[test]
+fn virtual_session_env_provides_hostless_filesystem_and_simple_shell() {
+    let env = VirtualSessionEnv::new("/workspace")
+        .with_file("docs/intro.md", "alpha")
+        .unwrap();
+
+    assert_eq!(
+        env.exec("pwd", ShellOptions::new()).unwrap().stdout,
+        "/workspace\n"
+    );
+    assert_eq!(
+        env.exec("cat docs/intro.md", ShellOptions::new())
+            .unwrap()
+            .stdout,
+        "alpha"
+    );
+
+    env.exec("mkdir -p logs", ShellOptions::new()).unwrap();
+    env.exec("echo beta > logs/result.txt", ShellOptions::new())
+        .unwrap();
+
+    assert_eq!(env.read_file("logs/result.txt").unwrap(), "beta\n");
+    assert_eq!(env.stat("logs").unwrap().is_directory, true);
+    assert_eq!(env.readdir(".").unwrap(), vec!["docs", "logs"]);
+    assert_eq!(
+        env.exec("grep beta logs/result.txt", ShellOptions::new())
+            .unwrap()
+            .stdout,
+        "beta\n"
+    );
+}
+
+#[test]
+fn sandbox_connector_builds_provider_scoped_http_session_env() {
+    let transport = RecordingHttpSessionTransport::new();
+    let requests = transport.requests.clone();
+    let env = SandboxConnector::vercel("https://sandbox.example/session", "/workspace/project")
+        .header("Authorization", "Bearer test")
+        .into_session_env_with_transport(transport);
+
+    assert_eq!(
+        env.exec("pwd", ShellOptions::new()).unwrap().stdout,
+        "remote:pwd"
+    );
+    let request = requests.lock().unwrap();
+    assert_eq!(request[0].0, "https://sandbox.example/session");
+    assert_eq!(request[0].1["Authorization"], "Bearer test");
+    assert_eq!(request[0].2["op"], "exec");
+    assert_eq!(request[0].2["provider"], "vercel");
+    assert_eq!(request[0].2["cwd"], "/workspace/project");
+
+    assert_eq!(SandboxProvider::Daytona.as_str(), "daytona");
+    assert_eq!(SandboxProvider::E2b.as_str(), "e2b");
+}
+
+#[test]
+fn software_workspace_sdk_exposes_repo_lifecycle_primitives() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(temp.path().join("src")).unwrap();
+    fs::write(
+        temp.path().join("Cargo.toml"),
+        "[package]\nname = \"software-sdk\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(temp.path().join("src/main.rs"), "fn main() {}\n").unwrap();
+    fs::write(temp.path().join("AGENTS.md"), "Keep changes small.\n").unwrap();
+
+    Command::new("git")
+        .args(["init"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let workspace = SoftwareWorkspace::new(temp.path());
+    let inspection = workspace.inspect_repo().unwrap();
+    assert!(inspection.project_files.contains(&"Cargo.toml".to_string()));
+    assert_eq!(inspection.instructions[0].path, "AGENTS.md");
+    assert!(inspection.git_status.contains("Cargo.toml"));
+
+    let checks = vec![SoftwareCheck::new("test -f DONE.md")];
+    let plan = workspace
+        .create_plan("Add DONE.md", checks.clone())
+        .unwrap();
+    assert_eq!(plan.prompt, "Add DONE.md");
+    assert!(plan.steps.iter().any(|step| step.contains("Inspect")));
+    assert_eq!(plan.checks[0].command, "test -f DONE.md");
+
+    let patch = temp.path().join("done.patch");
+    fs::write(
+        &patch,
+        "diff --git a/DONE.md b/DONE.md\nnew file mode 100644\nindex 0000000..2e65efe\n--- /dev/null\n+++ b/DONE.md\n@@ -0,0 +1 @@\n+done\n",
+    )
+    .unwrap();
+    let applied = workspace.apply_patch(&patch).unwrap();
+    assert!(applied.success);
+    assert_eq!(applied.files, vec!["DONE.md"]);
+
+    let results = workspace.run_checks(&checks).unwrap();
+    assert!(results[0].success);
+
+    let summary = workspace
+        .summarize_changes("Add DONE.md", &results)
+        .unwrap();
+    assert!(summary.changed_files.contains(&"DONE.md".to_string()));
+    assert!(summary.text.contains("Add DONE.md"));
+    assert!(summary.text.contains("test -f DONE.md: passed"));
+
+    let failed_check = agentic_harness::SoftwareCheckResult {
+        command: "cargo test".to_string(),
+        success: false,
+        exit_code: Some(101),
+        stdout: String::new(),
+        stderr: "one test failed".to_string(),
+    };
+    let repair = workspace
+        .repair_failure("Repair the failing test", &[failed_check])
+        .unwrap();
+    assert_eq!(repair.prompt, "Repair the failing test");
+    assert!(repair.steps.iter().any(|step| step.contains("cargo test")));
+
+    let _open_pr: fn(&SoftwareWorkspace) -> Result<SoftwarePullRequest, AgenticHarnessError> =
+        SoftwareWorkspace::open_pull_request;
 }
 
 impl ModelClient for BuiltinToolModel {
@@ -424,6 +550,7 @@ fn cloudflare_worker_manifest_generates_wrangler_config_fragment() {
             "$schema": "https://workers.cloudflare.com/schema/wrangler.json",
             "name": "demo-agent",
             "main": "_entry.js",
+            "compatibility_date": "2026-05-08",
             "durable_objects": {
                 "bindings": [
                     {

@@ -29,14 +29,14 @@ impl BuildTarget {
             "native" => Ok(Self::Native),
             "node" => Ok(Self::NodeCompat),
             "cloudflare" => Ok(Self::Cloudflare),
-            other => Err(format!("Unsupported target \"{other}\". Agentic Harness supports --target native, --target node compatibility, and --target cloudflare build artifacts.").into()),
+            other => Err(format!("Unsupported target \"{other}\". Agentic Harness supports --target native, --target node host package, and --target cloudflare build artifacts.").into()),
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Native => "native",
-            Self::NodeCompat => "node compatibility",
+            Self::NodeCompat => "node host package",
             Self::Cloudflare => "cloudflare worker boundary",
         }
     }
@@ -45,7 +45,7 @@ impl BuildTarget {
         match self {
             Self::Native | Self::NodeCompat => Ok(()),
             Self::Cloudflare => Err(format!(
-                "Cloudflare Workers target is not available for `agentic-harness {command}` in the native Rust runtime. Build a native Rust server artifact with --target native or --target node compatibility instead. Workers support requires a separate non-proxy Worker-compatible runtime."
+                "Cloudflare Workers target is not available for `agentic-harness {command}` in the native Rust runtime. Build a native Rust server artifact with --target native or a Node host package with --target node instead. Workers support requires a separate non-proxy Worker-compatible runtime."
             )
             .into()),
         }
@@ -71,7 +71,7 @@ enum Commands {
         /// Where dist/ is written. Default: current directory.
         #[arg(long)]
         output: Option<PathBuf>,
-        /// Build target. `node` is a native compatibility alias; `cloudflare` emits Worker boundary artifacts.
+        /// Build target. `node` emits a Node host package; `cloudflare` emits Worker boundary artifacts.
         #[arg(long, default_value = "native")]
         target: String,
         /// Worker-compatible app adapter copied to dist/agentic_harness_app.js for Cloudflare builds.
@@ -92,7 +92,7 @@ enum Commands {
         /// Cargo project containing the native Agentic Harness app.
         #[arg(long, default_value = ".")]
         workspace: PathBuf,
-        /// Build target. Agentic Harness supports `native`; `node` is a compatibility alias.
+        /// Build target. Agentic Harness supports `native`; `node` uses the native dev server.
         #[arg(long, default_value = "native")]
         target: String,
         /// Port for the development server.
@@ -109,12 +109,23 @@ enum Commands {
         /// Cargo package name. Defaults to the directory name.
         #[arg(long)]
         name: Option<String>,
-        /// Starter template: hello, triage, data, coding, code-review, test-fixer, repo-analyst, or support.
+        /// Starter template: hello, triage, data, coding, code-review, test-fixer, docs-writer, refactor-agent, release-agent, repo-analyst, or support.
         #[arg(long, default_value = "hello")]
         template: String,
     },
-    /// Start the default coding-agent flow.
-    #[command(alias = "start")]
+    /// Open the guided TUI dashboard for starting software-agent work.
+    Start {
+        /// Workspace used for dashboard panels and current-workspace actions.
+        #[arg(long, default_value = ".")]
+        workspace: PathBuf,
+        /// Print the TUI dashboard without interactive prompts.
+        #[arg(long)]
+        plain: bool,
+        /// Print machine-readable dashboard status for agents.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the default coding-agent flow directly.
     Code {
         /// Cargo project containing the native Agentic Harness app.
         #[arg(long, default_value = ".")]
@@ -137,6 +148,18 @@ enum Commands {
         /// Skip automatically detected checks such as cargo test.
         #[arg(long)]
         no_tests: bool,
+        /// Permit edits only under these paths. Repeat for multiple prefixes or glob-like patterns.
+        #[arg(long = "allow-path")]
+        allow_paths: Vec<String>,
+        /// Block edits under these paths. Repeat for multiple prefixes or glob-like patterns.
+        #[arg(long = "deny-path")]
+        deny_paths: Vec<String>,
+        /// Maximum allowed shell-check risk: low, medium, or high.
+        #[arg(long = "max-command-risk", default_value = "medium")]
+        max_command_risk: String,
+        /// Allow dependency manifest or lockfile edits such as Cargo.toml, package.json, or pyproject.toml.
+        #[arg(long = "approve-dependencies")]
+        approve_dependencies: bool,
         /// Commit successful changes with this git commit message.
         #[arg(long, value_name = "MESSAGE")]
         commit: Option<String>,
@@ -290,7 +313,7 @@ enum Commands {
         /// Cargo project containing the native Agentic Harness app.
         #[arg(long, default_value = ".")]
         workspace: PathBuf,
-        /// Build target. Agentic Harness supports `native`; `node` is a compatibility alias.
+        /// Build target. Agentic Harness supports `native`; `node` invokes the native workspace directly.
         #[arg(long, default_value = "native")]
         target: String,
         /// Accepted for CLI parity; native Rust run invokes the workspace directly.
@@ -607,6 +630,11 @@ fn try_main() -> Result<u8, Box<dyn std::error::Error>> {
             scaffold_any_template(&path, name, &template)?;
             Ok(0)
         }
+        Some(Commands::Start {
+            workspace,
+            plain,
+            json,
+        }) => start_command(&workspace, plain, json),
         Some(Commands::Code {
             workspace,
             prompt,
@@ -615,6 +643,10 @@ fn try_main() -> Result<u8, Box<dyn std::error::Error>> {
             apply_patches,
             llm,
             no_tests,
+            allow_paths,
+            deny_paths,
+            max_command_risk,
+            approve_dependencies,
             commit,
             pr,
             summary,
@@ -627,6 +659,10 @@ fn try_main() -> Result<u8, Box<dyn std::error::Error>> {
             apply_patches: &apply_patches,
             llm: llm.as_deref(),
             no_tests,
+            allow_paths: &allow_paths,
+            deny_paths: &deny_paths,
+            max_command_risk: &max_command_risk,
+            approve_dependencies,
             commit: commit.as_deref(),
             pr,
             summary: summary.as_deref(),
@@ -734,6 +770,21 @@ fn default_wizard_command() -> Result<u8, Box<dyn std::error::Error>> {
     }
 }
 
+fn start_command(
+    workspace: &Path,
+    plain: bool,
+    json: bool,
+) -> Result<u8, Box<dyn std::error::Error>> {
+    if json {
+        return dashboard_command(workspace, true, true);
+    }
+    if plain || !(io::stdin().is_terminal() && io::stdout().is_terminal()) {
+        wizard_command(workspace, true)
+    } else {
+        wizard_command(workspace, false)
+    }
+}
+
 struct CodeCommandOptions<'a> {
     workspace: &'a Path,
     prompt: Option<String>,
@@ -742,6 +793,10 @@ struct CodeCommandOptions<'a> {
     apply_patches: &'a [PathBuf],
     llm: Option<&'a str>,
     no_tests: bool,
+    allow_paths: &'a [String],
+    deny_paths: &'a [String],
+    max_command_risk: &'a str,
+    approve_dependencies: bool,
     commit: Option<&'a str>,
     pr: bool,
     summary: Option<&'a Path>,
@@ -760,12 +815,22 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         apply_patches,
         llm,
         no_tests,
+        allow_paths,
+        deny_paths,
+        max_command_risk,
+        approve_dependencies,
         commit,
         pr,
         summary,
         summary_json,
     } = options;
     let llm_environment = llm.map(LlmAuthoringEnvironment::parse).transpose()?;
+    let policy = CodingPolicy::new(
+        allow_paths.to_vec(),
+        deny_paths.to_vec(),
+        CommandRisk::parse(max_command_risk)?,
+        approve_dependencies,
+    );
     if !workspace.join("Cargo.toml").exists() {
         if io::stdin().is_terminal() && io::stdout().is_terminal() {
             println!(
@@ -816,6 +881,7 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
     let project_files = detect_project_files(&workspace);
     let workspace_instructions = load_workspace_instructions(&workspace)?;
     let checks = coding_checks_for_workspace(&workspace, test_commands, no_tests);
+    validate_check_command_risks(&checks, &policy)?;
     let planned_steps = coding_plan_steps(&checks, apply_patches, llm_environment);
     coding_progress("plan", &format!("{} steps", planned_steps.len()));
     let payload = serde_json::json!({
@@ -829,6 +895,7 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         "workspaceInstructions": workspace_instruction_json_entries(&workspace_instructions),
         "checks": checks,
         "plannedSteps": planned_steps,
+        "policy": coding_policy_json(&policy),
     })
     .to_string();
 
@@ -853,12 +920,12 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         .iter()
         .map(|path| {
             coding_progress("patch", &path.display().to_string());
-            apply_coding_patch(&workspace, path)
+            apply_coding_patch(&workspace, path, &policy)
         })
         .collect::<Vec<_>>();
     for path in write_agent_generated_patches(&agent_output)? {
         coding_progress("patch", &path.display().to_string());
-        patch_results.push(apply_coding_patch(&workspace, &path));
+        patch_results.push(apply_coding_patch(&workspace, &path, &policy));
     }
     let mut patch_failed = patch_results.iter().any(|result| !result.success);
     let llm_result = if let Some(environment) = llm_environment {
@@ -887,6 +954,13 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         let mut result = run_llm_coding_tool(&workspace, environment, &brief_path);
         result.changed_files =
             changed_files_from_workspace_snapshot(&workspace, &llm_change_baseline)?;
+        if let Err(err) = policy.validate_changed_files(&result.changed_files) {
+            result.success = false;
+            if !result.stderr.is_empty() && !result.stderr.ends_with('\n') {
+                result.stderr.push('\n');
+            }
+            result.stderr.push_str(&err);
+        }
         if !result.stdout.is_empty() {
             io::stdout().write_all(result.stdout.as_bytes())?;
         }
@@ -928,6 +1002,7 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
             "workspaceInstructions": workspace_instruction_json_entries(&workspace_instructions),
             "checks": checks,
             "plannedSteps": planned_steps,
+            "policy": coding_policy_json(&policy),
             "repairAttempt": 1,
             "failedChecks": check_results.iter().filter(|result| !result.success).map(|result| {
                 serde_json::json!({
@@ -955,7 +1030,7 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         if repair_output.status.success() {
             for path in write_agent_generated_patches(&repair_output)? {
                 coding_progress("patch", &path.display().to_string());
-                patch_results.push(apply_coding_patch(&workspace, &path));
+                patch_results.push(apply_coding_patch(&workspace, &path, &policy));
             }
             patch_failed = patch_results.iter().any(|result| !result.success);
             if !patch_failed {
@@ -991,51 +1066,48 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
     let changed_files =
         changed_files_from_coding_run(&git_status_after, &patch_results, &snapshot_changed_files);
 
-    let write_default_summary = summary.is_none() && summary_json.is_none();
-    if write_default_summary || summary.is_some() || summary_json.is_some() {
-        let coding_summary = CodingSummary {
-            workspace: workspace.clone(),
-            id: id.to_string(),
-            prompt: prompt.clone(),
-            git_status_before,
-            git_status_after,
-            git_diff_stat,
-            git_changed_files,
-            root_files,
-            project_files,
-            changed_files,
-            workspace_instructions: &workspace_instructions,
-            planned_steps: &planned_steps,
-            sandbox: &sandbox_config,
-            agent_output: &agent_output,
-            llm: llm_result.as_ref(),
-            patches: &patch_results,
-            commit: commit_result.as_ref(),
-            pull_request: pr_result.as_ref(),
-            checks: &check_results,
-        };
-        if write_default_summary {
-            coding_progress("summary", DEFAULT_CODING_SUMMARY_PATH);
-            write_coding_summary(
-                &workspace.join(DEFAULT_CODING_SUMMARY_PATH),
-                &coding_summary,
-            )?;
-            coding_progress("summary-json", DEFAULT_CODING_SUMMARY_JSON_PATH);
-            write_coding_summary_json(
-                &workspace.join(DEFAULT_CODING_SUMMARY_JSON_PATH),
-                &coding_summary,
-            )?;
-        }
-        if let Some(summary) = summary {
-            coding_progress("summary", &summary.display().to_string());
-            let path = resolve_workspace_output_path(&workspace, summary);
-            write_coding_summary(&path, &coding_summary)?;
-        }
-        if let Some(summary_json) = summary_json {
-            coding_progress("summary-json", &summary_json.display().to_string());
-            let path = resolve_workspace_output_path(&workspace, summary_json);
-            write_coding_summary_json(&path, &coding_summary)?;
-        }
+    let coding_summary = CodingSummary {
+        workspace: workspace.clone(),
+        id: id.to_string(),
+        prompt: prompt.clone(),
+        git_status_before,
+        git_status_after,
+        git_diff_stat,
+        git_changed_files,
+        root_files,
+        project_files,
+        changed_files,
+        workspace_instructions: &workspace_instructions,
+        planned_steps: &planned_steps,
+        sandbox: &sandbox_config,
+        policy: &policy,
+        agent_output: &agent_output,
+        llm: llm_result.as_ref(),
+        patches: &patch_results,
+        commit: commit_result.as_ref(),
+        pull_request: pr_result.as_ref(),
+        checks: &check_results,
+    };
+    write_coding_run_artifacts(&workspace, id, &coding_summary)?;
+    coding_progress("summary", DEFAULT_CODING_SUMMARY_PATH);
+    write_coding_summary(
+        &workspace.join(DEFAULT_CODING_SUMMARY_PATH),
+        &coding_summary,
+    )?;
+    coding_progress("summary-json", DEFAULT_CODING_SUMMARY_JSON_PATH);
+    write_coding_summary_json(
+        &workspace.join(DEFAULT_CODING_SUMMARY_JSON_PATH),
+        &coding_summary,
+    )?;
+    if let Some(summary) = summary {
+        coding_progress("summary", &summary.display().to_string());
+        let path = resolve_workspace_output_path(&workspace, summary);
+        write_coding_summary(&path, &coding_summary)?;
+    }
+    if let Some(summary_json) = summary_json {
+        coding_progress("summary-json", &summary_json.display().to_string());
+        let path = resolve_workspace_output_path(&workspace, summary_json);
+        write_coding_summary_json(&path, &coding_summary)?;
     }
 
     if agent_code != 0 {
@@ -1067,6 +1139,220 @@ fn default_coding_prompt() -> &'static str {
     "Inspect the repository, plan the smallest safe coding step, run the available checks, and summarize the result."
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum CommandRisk {
+    Low,
+    Medium,
+    High,
+}
+
+impl CommandRisk {
+    fn parse(value: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        match value {
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            other => {
+                Err(format!("invalid max-command-risk {other:?}; use low, medium, or high").into())
+            }
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct CodingPolicy {
+    allow_paths: Vec<String>,
+    deny_paths: Vec<String>,
+    max_command_risk: CommandRisk,
+    approve_dependencies: bool,
+}
+
+impl CodingPolicy {
+    fn new(
+        allow_paths: Vec<String>,
+        deny_paths: Vec<String>,
+        max_command_risk: CommandRisk,
+        approve_dependencies: bool,
+    ) -> Self {
+        Self {
+            allow_paths: normalize_policy_patterns(allow_paths),
+            deny_paths: normalize_policy_patterns(deny_paths),
+            max_command_risk,
+            approve_dependencies,
+        }
+    }
+
+    fn validate_changed_files(&self, files: &[String]) -> Result<(), String> {
+        for file in files {
+            if self
+                .deny_paths
+                .iter()
+                .any(|pattern| path_policy_matches(pattern, file))
+            {
+                return Err(format!("denied path {file} matched --deny-path"));
+            }
+            if !self.allow_paths.is_empty()
+                && !self
+                    .allow_paths
+                    .iter()
+                    .any(|pattern| path_policy_matches(pattern, file))
+            {
+                return Err(format!("path {file} is outside --allow-path policy"));
+            }
+            if !self.approve_dependencies && is_dependency_file(file) {
+                return Err(format!(
+                    "dependency change {file} requires --approve-dependencies"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn normalize_policy_patterns(patterns: Vec<String>) -> Vec<String> {
+    patterns
+        .into_iter()
+        .map(|pattern| normalize_relative_pattern(&pattern))
+        .filter(|pattern| !pattern.is_empty())
+        .collect()
+}
+
+fn normalize_relative_pattern(pattern: &str) -> String {
+    pattern
+        .trim()
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .replace('\\', "/")
+}
+
+fn path_policy_matches(pattern: &str, path: &str) -> bool {
+    let path = normalize_relative_pattern(path);
+    if pattern == "*" || pattern == "**" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path == prefix || path.starts_with(&format!("{prefix}/"));
+    }
+    if pattern.ends_with('/') {
+        return path.starts_with(pattern);
+    }
+    if pattern.contains('*') {
+        return wildcard_match(pattern, &path);
+    }
+    path == pattern || path.starts_with(&format!("{pattern}/"))
+}
+
+fn wildcard_match(pattern: &str, path: &str) -> bool {
+    let mut remainder = path;
+    let mut first = true;
+    for part in pattern.split('*') {
+        if part.is_empty() {
+            continue;
+        }
+        if first && !pattern.starts_with('*') {
+            let Some(stripped) = remainder.strip_prefix(part) else {
+                return false;
+            };
+            remainder = stripped;
+        } else if let Some(index) = remainder.find(part) {
+            remainder = &remainder[index + part.len()..];
+        } else {
+            return false;
+        }
+        first = false;
+    }
+    pattern.ends_with('*') || remainder.is_empty()
+}
+
+fn is_dependency_file(path: &str) -> bool {
+    matches!(
+        normalize_relative_pattern(path).as_str(),
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "package.json"
+            | "package-lock.json"
+            | "pnpm-lock.yaml"
+            | "yarn.lock"
+            | "bun.lock"
+            | "bun.lockb"
+            | "pyproject.toml"
+            | "requirements.txt"
+            | "uv.lock"
+            | "poetry.lock"
+            | "go.mod"
+            | "go.sum"
+    )
+}
+
+fn command_risk(command: &str) -> CommandRisk {
+    let lower = command.to_ascii_lowercase();
+    if lower.contains("rm -rf")
+        || lower.contains("sudo ")
+        || lower.contains("curl ") && (lower.contains("| sh") || lower.contains("| bash"))
+        || lower.contains("wget ") && (lower.contains("| sh") || lower.contains("| bash"))
+        || lower.contains("mkfs")
+        || lower.contains("dd if=")
+        || lower.contains("> /dev/")
+        || lower.contains("chmod -r 777")
+    {
+        CommandRisk::High
+    } else if lower.contains("cargo install")
+        || lower.contains("npm install")
+        || lower.contains("pnpm install")
+        || lower.contains("yarn add")
+        || lower.contains("pip install")
+        || lower.contains("brew install")
+        || lower.contains("git push")
+        || lower.contains("git clean")
+        || lower.contains("git reset")
+    {
+        CommandRisk::Medium
+    } else {
+        CommandRisk::Low
+    }
+}
+
+fn validate_check_command_risks(
+    checks: &[String],
+    policy: &CodingPolicy,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for check in checks {
+        let risk = command_risk(check);
+        if risk > policy.max_command_risk {
+            return Err(format!(
+                "check command risk {} exceeds max-command-risk {}: {check}",
+                risk.label(),
+                policy.max_command_risk.label()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn coding_policy_json(policy: &CodingPolicy) -> serde_json::Value {
+    serde_json::json!({
+        "allowPaths": &policy.allow_paths,
+        "denyPaths": &policy.deny_paths,
+        "maxCommandRisk": policy.max_command_risk.label(),
+        "approveDependencies": policy.approve_dependencies,
+        "approvalGates": {
+            "commit": "requires --commit",
+            "pullRequest": "requires --pr",
+            "dependencies": "requires --approve-dependencies",
+            "destructiveCommands": "blocked above max-command-risk",
+        }
+    })
+}
+
 #[derive(Debug)]
 struct CodingCheckResult {
     command: String,
@@ -1080,6 +1366,7 @@ struct CodingCheckResult {
 struct CodingPatchResult {
     path: PathBuf,
     success: bool,
+    blocked: bool,
     files: Vec<String>,
     stdout: String,
     stderr: String,
@@ -1133,6 +1420,7 @@ struct CodingSummary<'a> {
     workspace_instructions: &'a [WorkspaceInstruction],
     planned_steps: &'a [String],
     sandbox: &'a SandboxConfig,
+    policy: &'a CodingPolicy,
     agent_output: &'a Output,
     llm: Option<&'a CodingLlmResult>,
     patches: &'a [CodingPatchResult],
@@ -1304,6 +1592,10 @@ fn git_status_short(workspace: &Path) -> String {
 
 fn git_diff_stat(workspace: &Path) -> String {
     git_output(workspace, &["diff", "--stat"], "git diff --stat")
+}
+
+fn git_diff_patch(workspace: &Path) -> String {
+    git_output(workspace, &["diff"], "git diff")
 }
 
 fn git_changed_files(workspace: &Path) -> Vec<String> {
@@ -1559,9 +1851,19 @@ fn run_coding_checks(
         .collect()
 }
 
-fn apply_coding_patch(workspace: &Path, path: &Path) -> CodingPatchResult {
+fn apply_coding_patch(workspace: &Path, path: &Path, policy: &CodingPolicy) -> CodingPatchResult {
     let patch_path = resolve_workspace_output_path(workspace, path);
     let files = patch_changed_files(&patch_path);
+    if let Err(err) = policy.validate_changed_files(&files) {
+        return CodingPatchResult {
+            path: patch_path,
+            success: false,
+            blocked: true,
+            files,
+            stdout: String::new(),
+            stderr: err,
+        };
+    }
     match Command::new("git")
         .arg("apply")
         .arg("--whitespace=nowarn")
@@ -1572,6 +1874,7 @@ fn apply_coding_patch(workspace: &Path, path: &Path) -> CodingPatchResult {
         Ok(output) => CodingPatchResult {
             path: patch_path,
             success: output.status.success(),
+            blocked: false,
             files,
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
@@ -1579,6 +1882,7 @@ fn apply_coding_patch(workspace: &Path, path: &Path) -> CodingPatchResult {
         Err(err) => CodingPatchResult {
             path: patch_path,
             success: false,
+            blocked: false,
             files,
             stdout: String::new(),
             stderr: err.to_string(),
@@ -1723,7 +2027,7 @@ fn render_coding_llm_brief(brief: &CodingLlmBrief<'_>) -> String {
             out.push_str(&format!(
                 "- `{}`: {}\n",
                 patch.path.display(),
-                if patch.success { "applied" } else { "failed" }
+                coding_patch_status(patch)
             ));
         }
     }
@@ -2090,6 +2394,40 @@ fn write_coding_summary_json(
     Ok(())
 }
 
+fn write_coding_run_artifacts(
+    workspace: &Path,
+    id: &str,
+    summary: &CodingSummary<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = coding_run_dir(workspace, id);
+    fs::create_dir_all(&dir)?;
+    let artifacts = [
+        ("summary", "summary.md"),
+        ("run", "run.json"),
+        ("events", "events.jsonl"),
+        ("diff", "diff.patch"),
+        ("checks", "checks.json"),
+        ("agent-instructions", "agent-instructions.md"),
+    ];
+    coding_progress("artifacts", &dir.display().to_string());
+    fs::write(dir.join("summary.md"), render_coding_summary(summary))?;
+    fs::write(dir.join("run.json"), render_coding_summary_json(summary)?)?;
+    fs::write(
+        dir.join("events.jsonl"),
+        render_coding_events_jsonl(summary)?,
+    )?;
+    fs::write(dir.join("diff.patch"), git_diff_patch(workspace))?;
+    fs::write(dir.join("checks.json"), render_coding_checks_json(summary)?)?;
+    fs::write(
+        dir.join("agent-instructions.md"),
+        render_coding_agent_instructions(summary),
+    )?;
+    for (label, file) in artifacts {
+        coding_progress(label, &dir.join(file).display().to_string());
+    }
+    Ok(())
+}
+
 fn render_coding_summary_json(
     summary: &CodingSummary<'_>,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -2115,6 +2453,8 @@ fn render_coding_summary_json(
         "gitDiffStat": summary.git_diff_stat,
         "gitChangedFiles": summary.git_changed_files,
         "sandbox": coding_summary_sandbox_json(summary.sandbox),
+        "policy": coding_policy_json(summary.policy),
+        "artifacts": coding_artifacts_json(),
         "nextCommands": coding_summary_next_commands(summary),
         "agentResult": coding_agent_result_json(summary.agent_output),
         "agent": {
@@ -2139,8 +2479,9 @@ fn render_coding_summary_json(
         "patches": summary.patches.iter().map(|patch| {
             serde_json::json!({
                 "path": patch.path.display().to_string(),
-                "status": if patch.success { "applied" } else { "failed" },
+                "status": coding_patch_status(patch),
                 "success": patch.success,
+                "blocked": patch.blocked,
                 "files": patch.files,
                 "stdout": trim_for_summary(&patch.stdout),
                 "stderr": trim_for_summary(&patch.stderr),
@@ -2175,6 +2516,102 @@ fn render_coding_summary_json(
         }).collect::<Vec<_>>(),
     });
     Ok(format!("{}\n", serde_json::to_string_pretty(&value)?))
+}
+
+fn render_coding_checks_json(
+    summary: &CodingSummary<'_>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let value = summary
+        .checks
+        .iter()
+        .map(|check| {
+            serde_json::json!({
+                "command": check.command,
+                "status": if check.success { "passed" } else { "failed" },
+                "success": check.success,
+                "exitCode": check.exit_code,
+                "stdout": trim_for_summary(&check.stdout),
+                "stderr": trim_for_summary(&check.stderr),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(format!("{}\n", serde_json::to_string_pretty(&value)?))
+}
+
+fn render_coding_events_jsonl(
+    summary: &CodingSummary<'_>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut out = String::new();
+    for entry in coding_loop_entries(summary) {
+        let value = serde_json::json!({
+            "type": "phase",
+            "phase": entry.phase,
+            "status": entry.status,
+            "detail": entry.detail,
+        });
+        out.push_str(&serde_json::to_string(&value)?);
+        out.push('\n');
+    }
+    let policy = serde_json::json!({
+        "type": "policy",
+        "policy": coding_policy_json(summary.policy),
+    });
+    out.push_str(&serde_json::to_string(&policy)?);
+    out.push('\n');
+    Ok(out)
+}
+
+fn render_coding_agent_instructions(summary: &CodingSummary<'_>) -> String {
+    let mut out = String::new();
+    out.push_str("# Agentic Harness Agent Instructions\n\n");
+    out.push_str(&format!("Workspace: `{}`\n", summary.workspace.display()));
+    out.push_str(&format!("Request id: `{}`\n", summary.id));
+    out.push_str(&format!("Prompt: {}\n\n", summary.prompt));
+    out.push_str("## Required Loop\n\n");
+    out.push_str("1. Inspect repository instructions and current git state before editing.\n");
+    out.push_str("2. Make the smallest focused change that satisfies the prompt.\n");
+    out.push_str("3. Keep edits inside the configured path policy.\n");
+    out.push_str("4. Run or satisfy the configured checks before reporting success.\n");
+    out.push_str(
+        "5. Do not commit or open a pull request unless the run explicitly requested it.\n",
+    );
+    out.push_str("\n## Approval gates\n\n");
+    out.push_str("- Commit: requires `--commit MESSAGE`.\n");
+    out.push_str("- Pull request: requires `--pr` after a successful run.\n");
+    out.push_str("- Dependency changes: require `--approve-dependencies`.\n");
+    out.push_str("- Destructive commands: blocked when above `--max-command-risk`.\n");
+    out.push_str("\n## Path policy\n\n");
+    if summary.policy.allow_paths.is_empty() {
+        out.push_str("- allow: all paths\n");
+    } else {
+        for pattern in &summary.policy.allow_paths {
+            out.push_str(&format!("- allow: `{pattern}`\n"));
+        }
+    }
+    if summary.policy.deny_paths.is_empty() {
+        out.push_str("- deny: none\n");
+    } else {
+        for pattern in &summary.policy.deny_paths {
+            out.push_str(&format!("- deny: `{pattern}`\n"));
+        }
+    }
+    out.push_str("\n## Planned Steps\n\n");
+    for step in summary.planned_steps {
+        out.push_str(&format!("- {step}\n"));
+    }
+    out.push_str("\n## Checks\n\n");
+    if summary.checks.is_empty() {
+        out.push_str("- none configured or checks skipped\n");
+    } else {
+        for check in summary.checks {
+            out.push_str(&format!(
+                "- `{}`: {}\n",
+                check.command,
+                if check.success { "passed" } else { "failed" }
+            ));
+        }
+    }
+    out
 }
 
 fn render_coding_summary(summary: &CodingSummary<'_>) -> String {
@@ -2243,6 +2680,39 @@ fn render_coding_summary(summary: &CodingSummary<'_>) -> String {
         "check mode: `{}`\n",
         sandbox_check_mode(summary.sandbox)
     ));
+
+    out.push_str("\n## Policy\n\n");
+    out.push_str(&format!(
+        "allowed paths: {}\n\n",
+        if summary.policy.allow_paths.is_empty() {
+            "all".to_string()
+        } else {
+            summary.policy.allow_paths.join(", ")
+        }
+    ));
+    out.push_str(&format!(
+        "denied paths: {}\n\n",
+        if summary.policy.deny_paths.is_empty() {
+            "none".to_string()
+        } else {
+            summary.policy.deny_paths.join(", ")
+        }
+    ));
+    out.push_str(&format!(
+        "max command risk: `{}`\n\n",
+        summary.policy.max_command_risk.label()
+    ));
+    out.push_str(&format!(
+        "dependency changes: {}\n\n",
+        if summary.policy.approve_dependencies {
+            "approved"
+        } else {
+            "require --approve-dependencies"
+        }
+    ));
+    out.push_str(
+        "approval gates: commit requires --commit; pull request requires --pr; dependency changes require --approve-dependencies.\n",
+    );
 
     out.push_str("\n## Workspace Instructions\n\n");
     if summary.workspace_instructions.is_empty() {
@@ -2342,10 +2812,7 @@ fn render_coding_summary(summary: &CodingSummary<'_>) -> String {
     } else {
         for patch in summary.patches {
             out.push_str(&format!("### Patch: `{}`\n\n", patch.path.display()));
-            out.push_str(&format!(
-                "status: {}\n\n",
-                if patch.success { "applied" } else { "failed" }
-            ));
+            out.push_str(&format!("status: {}\n\n", coding_patch_status(patch)));
             out.push_str("files:\n");
             if patch.files.is_empty() {
                 out.push_str("- unknown\n");
@@ -2450,6 +2917,27 @@ fn coding_summary_sandbox_json(config: &SandboxConfig) -> serde_json::Value {
         "endpoint": config.endpoint,
         "checkMode": sandbox_check_mode(config),
     })
+}
+
+fn coding_artifacts_json() -> serde_json::Value {
+    serde_json::json!({
+        "run": "run.json",
+        "summary": "summary.md",
+        "events": "events.jsonl",
+        "diff": "diff.patch",
+        "checks": "checks.json",
+        "agentInstructions": "agent-instructions.md",
+    })
+}
+
+fn coding_patch_status(patch: &CodingPatchResult) -> &'static str {
+    if patch.blocked {
+        "blocked"
+    } else if patch.success {
+        "applied"
+    } else {
+        "failed"
+    }
 }
 
 fn sandbox_check_mode(config: &SandboxConfig) -> &'static str {
@@ -5842,6 +6330,11 @@ fn doctor_report(workspace: &Path) -> DoctorReport {
     let sandbox = sandbox_doctor_check(workspace);
     let llm_authoring = llm_authoring_doctor_check(workspace);
     let llm_tools = llm_tools_doctor_check();
+    let git_repo = git_repo_doctor_check(workspace);
+    let worktree = worktree_doctor_check(workspace);
+    let tests = tests_doctor_check(workspace);
+    let permissions = permissions_doctor_check();
+    let recovery = recovery_doctor_check(workspace);
 
     let mut checks = vec![
             DoctorCheck {
@@ -5911,6 +6404,11 @@ fn doctor_report(workspace: &Path) -> DoctorReport {
                 fix: "Add skill folders under .agents/skills or skills when your agent needs reusable procedures.",
             },
         ];
+    checks.push(git_repo);
+    checks.push(worktree);
+    checks.push(tests);
+    checks.push(permissions);
+    checks.push(recovery);
     checks.push(sandbox);
     checks.push(llm_authoring);
     checks.push(llm_tools);
@@ -5935,6 +6433,93 @@ fn llm_authoring_installed(workspace: &Path) -> bool {
         && workspace
             .join(".agentic-harness/llm-authoring.toml")
             .exists()
+}
+
+fn git_repo_doctor_check(workspace: &Path) -> DoctorCheck {
+    match Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(workspace)
+        .output()
+    {
+        Ok(output) if output.status.success() => DoctorCheck {
+            label: "git repo",
+            ok: true,
+            required: false,
+            detail: "git repository detected".to_string(),
+            fix: "No action needed.",
+        },
+        Ok(_) => DoctorCheck {
+            label: "git repo",
+            ok: false,
+            required: false,
+            detail: "not a git repository; changes can still run but commit/PR gates need git"
+                .to_string(),
+            fix: "Run git init if this workspace should support commit and PR gates.",
+        },
+        Err(_) => DoctorCheck {
+            label: "git repo",
+            ok: false,
+            required: false,
+            detail: "git command is unavailable; commit/PR gates will be disabled".to_string(),
+            fix: "Install git before using commit and PR gates.",
+        },
+    }
+}
+
+fn worktree_doctor_check(workspace: &Path) -> DoctorCheck {
+    let status = git_status_short(workspace);
+    let not_git =
+        status.contains("not a git repository") || status.starts_with("git status unavailable:");
+    DoctorCheck {
+        label: "worktree",
+        ok: status.trim().is_empty() || not_git,
+        required: false,
+        detail: if not_git {
+            "no git worktree; run artifacts will record file snapshots".to_string()
+        } else if status.trim().is_empty() {
+            "clean".to_string()
+        } else {
+            format!("dirty before run: {}", status.lines().count())
+        },
+        fix: "Review or commit existing changes before running high-risk coding work.",
+    }
+}
+
+fn tests_doctor_check(workspace: &Path) -> DoctorCheck {
+    let checks = coding_checks_for_workspace(workspace, &[], false);
+    DoctorCheck {
+        label: "tests",
+        ok: !checks.is_empty(),
+        required: false,
+        detail: if checks.is_empty() {
+            "no automatic checks detected".to_string()
+        } else {
+            format!("detected checks: {}", checks.join("; "))
+        },
+        fix: "Pass checks explicitly with: agentic-harness code --test \"your check\"",
+    }
+}
+
+fn permissions_doctor_check() -> DoctorCheck {
+    DoctorCheck {
+        label: "permissions",
+        ok: true,
+        required: false,
+        detail: "default policy blocks dependency edits without approval and caps check risk at medium"
+            .to_string(),
+        fix: "Use --allow-path, --deny-path, --max-command-risk, and --approve-dependencies to tune coding runs.",
+    }
+}
+
+fn recovery_doctor_check(workspace: &Path) -> DoctorCheck {
+    DoctorCheck {
+        label: "recovery",
+        ok: workspace.is_dir(),
+        required: false,
+        detail: "runs write summary.md, run.json, events.jsonl, diff.patch, checks.json, and agent-instructions.md under .agentic-harness/runs"
+            .to_string(),
+        fix: "Create the workspace before running the coding loop.",
+    }
 }
 
 fn llm_authoring_doctor_check(workspace: &Path) -> DoctorCheck {
@@ -7078,6 +7663,10 @@ fn run_wizard_action(
             apply_patches: &[],
             llm: None,
             no_tests: false,
+            allow_paths: &[],
+            deny_paths: &[],
+            max_command_risk: "medium",
+            approve_dependencies: false,
             commit: None,
             pr: false,
             summary: None,
@@ -7091,6 +7680,10 @@ fn run_wizard_action(
             apply_patches: &[],
             llm: Some("auto"),
             no_tests: false,
+            allow_paths: &[],
+            deny_paths: &[],
+            max_command_risk: "medium",
+            approve_dependencies: false,
             commit: None,
             pr: false,
             summary: None,
@@ -7107,6 +7700,10 @@ fn run_wizard_action(
                 apply_patches: &[],
                 llm: None,
                 no_tests: false,
+                allow_paths: &[],
+                deny_paths: &[],
+                max_command_risk: "medium",
+                approve_dependencies: false,
                 commit: None,
                 pr: false,
                 summary: None,
@@ -7722,6 +8319,9 @@ fn render_template_wizard_panel(workspace: &Path, color: bool) -> String {
         ScaffoldTemplate::Coding,
         ScaffoldTemplate::CodeReview,
         ScaffoldTemplate::TestFixer,
+        ScaffoldTemplate::DocsWriter,
+        ScaffoldTemplate::RefactorAgent,
+        ScaffoldTemplate::ReleaseAgent,
     ];
 
     if color {
@@ -8493,17 +9093,86 @@ fn build_native(
         dist.join("manifest.json"),
         serde_json::to_string_pretty(&manifest_json)?,
     )?;
+    if target == BuildTarget::NodeCompat {
+        write_node_host_package(&dist, package_name, dist_binary.file_name().unwrap())?;
+    }
 
     eprintln!(
         "[agentic-harness] Generated: {}",
         dist.join("manifest.json").display()
     );
+    if target == BuildTarget::NodeCompat {
+        eprintln!(
+            "[agentic-harness] Generated: {}",
+            dist.join("server.mjs").display()
+        );
+        eprintln!(
+            "[agentic-harness] Generated: {}",
+            dist.join("package.json").display()
+        );
+    }
     eprintln!("[agentic-harness] Built: {}", dist_binary.display());
     eprintln!(
         "[agentic-harness] Build complete. Output: {}",
         dist.display()
     );
     Ok(0)
+}
+
+fn write_node_host_package(
+    dist: &Path,
+    package_name: &str,
+    binary_name: &std::ffi::OsStr,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let binary_name = binary_name
+        .to_str()
+        .ok_or("built binary filename was not valid UTF-8")?;
+    let binary_json = serde_json::to_string(binary_name)?;
+    let package = serde_json::json!({
+        "name": format!("{package_name}-agentic-harness-node"),
+        "private": true,
+        "type": "module",
+        "scripts": {
+            "start": "node server.mjs"
+        },
+        "agenticHarness": {
+            "runtime": "native-rust",
+            "binary": binary_name,
+            "serveArgs": ["--agentic-harness-serve", "--addr", "${HOST:-0.0.0.0}:${PORT:-3583}"]
+        }
+    });
+    fs::write(
+        dist.join("package.json"),
+        serde_json::to_string_pretty(&package)?,
+    )?;
+    fs::write(
+        dist.join("server.mjs"),
+        format!(
+            r#"import {{ spawn }} from 'node:child_process';
+import path from 'node:path';
+import {{ fileURLToPath }} from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const binary = path.join(__dirname, {binary_json});
+const host = process.env.HOST ?? '0.0.0.0';
+const port = process.env.PORT ?? '3583';
+const child = spawn(binary, ['--agentic-harness-serve', '--addr', `${{host}}:${{port}}`], {{
+  stdio: 'inherit',
+  env: process.env,
+}});
+
+for (const signal of ['SIGINT', 'SIGTERM']) {{
+  process.on(signal, () => child.kill(signal));
+}}
+
+child.on('exit', (code, signal) => {{
+  if (signal) process.kill(process.pid, signal);
+  process.exit(code ?? 0);
+}});
+"#
+        ),
+    )?;
+    Ok(())
 }
 
 fn build_cloudflare(
@@ -9385,93 +10054,99 @@ fn native_mcp_connector_markdown() -> &'static str {
 }
 
 fn native_daytona_connector_markdown() -> &'static str {
-    "# Rust-native Daytona sandbox connector\n\nYou are an AI coding agent installing a Daytona sandbox connector for native Agentic Harness.\n\nBuild a small Rust module, for example `src/connectors/daytona.rs`, that wraps the user's initialized Daytona sandbox/client behind Agentic Harness's `SessionEnv` shape:\n\n```rust\nuse agentic_harness::{FileStat, AgenticHarnessError, SessionEnv, ShellOptions, ShellOutput};\nuse std::path::{Path, PathBuf};\n\npub struct DaytonaEnv {\n    cwd: PathBuf,\n    // Store the user's Daytona sandbox/client handle here.\n}\n\nimpl SessionEnv for DaytonaEnv {\n    fn exec(&self, command: &str, options: ShellOptions) -> Result<ShellOutput, AgenticHarnessError> {\n        // Forward command, options.cwd, options.env, and options.timeout to Daytona.\n        // Return stdout, stderr, and exit_code without exposing host secrets.\n        todo!(\"wire Daytona command execution\")\n    }\n\n    fn read_file(&self, path: &str) -> Result<String, AgenticHarnessError> { todo!(\"download/read file\") }\n    fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgenticHarnessError> { todo!(\"upload/write file\") }\n    fn stat(&self, path: &str) -> Result<FileStat, AgenticHarnessError> { todo!(\"map Daytona file details\") }\n    fn readdir(&self, path: &str) -> Result<Vec<String>, AgenticHarnessError> { todo!(\"list files\") }\n    fn exists(&self, path: &str) -> Result<bool, AgenticHarnessError> { todo!(\"check file details\") }\n    fn mkdir(&self, path: &str) -> Result<(), AgenticHarnessError> { todo!(\"create folder\") }\n    fn rm(&self, path: &str, recursive: bool) -> Result<(), AgenticHarnessError> { todo!(\"delete file/folder\") }\n    fn cwd(&self) -> &Path { &self.cwd }\n    fn resolve_path(&self, path: &str) -> PathBuf { if Path::new(path).is_absolute() { path.into() } else { self.cwd.join(path) } }\n}\n```\n\nWire it by creating `DaytonaEnv` in trusted Rust code and using `ctx.session_with_id_and_env(\"daytona\", daytona_env)`. After that, the normal session helpers run in Daytona. If the provider SDK is async-only, keep the async client behind a narrow sync boundary chosen by the project, or expose an async connector module and call it from handlers before passing results to Agentic Harness. Use `AgentContext::shell_with_options` as the local behavior reference for cwd/env/timeout semantics.\n"
+    r#"# Rust-native Daytona sandbox connector
+
+Use this when a Daytona sidecar or gateway exposes the Agentic Harness
+`HttpSessionEnv` protocol.
+
+```rust
+use agentic_harness::{AgentContext, AgenticHarnessError, SandboxConnector};
+
+fn daytona_session(
+    ctx: &AgentContext,
+    endpoint: &str,
+    token: &str,
+) -> Result<agentic_harness::Session, AgenticHarnessError> {
+    let env = SandboxConnector::daytona(endpoint, "/workspace/project")
+        .header("Authorization", format!("Bearer {token}"))
+        .into_session_env();
+    ctx.try_session_with_id_and_env("daytona", env)
+}
+```
+
+After binding, normal `SessionEnv` helpers such as `session.shell`,
+`session.read`, `session.write`, `session.grep`, and `session.glob` run in the
+Daytona environment. Keep the Daytona API key in trusted Rust env/config, never
+in prompt text.
+
+If the project uses Daytona's SDK directly instead of an HTTP bridge, create a
+project-local `SessionEnv` module and map command execution, cwd, env, timeout,
+read, write, stat, readdir, exists, mkdir, and rm to the SDK methods.
+Use `AgentContext::shell_with_options` as the local behavior reference for
+`ShellOptions::cwd`, env, and timeout semantics.
+"#
 }
 
 fn native_e2b_connector_markdown() -> &'static str {
     r#"# Rust-native E2B sandbox connector
 
-You are an AI coding agent installing an E2B sandbox connector for native Agentic Harness. Use this when the coding agent needs an isolated cloud Linux environment with command execution and filesystem access.
-
-Build a small Rust module, for example `src/connectors/e2b.rs`, that adapts the user's E2B sandbox/client handle into `agentic_harness::SessionEnv`.
-
-Required behavior:
-
-- `exec(command, ShellOptions)` must map `ShellOptions::cwd`, `ShellOptions::env`, and `ShellOptions::timeout` onto E2B command execution.
-- `read_file`, `write_file`, `stat`, `readdir`, `exists`, `mkdir`, and `rm` must operate inside the E2B filesystem.
-- `cwd` and `resolve_path` must preserve workspace-relative behavior.
-- Return accurate `ShellOutput { stdout, stderr, exit_code }` and `FileStat` metadata.
-- Keep API keys and sandbox credentials in trusted Rust env/config, never in prompt text.
-
-Skeleton:
+Use this when an E2B gateway exposes the Agentic Harness `HttpSessionEnv`
+protocol, or when the project needs a first-class hosted Linux coding target.
 
 ```rust
-use agentic_harness::{AgenticHarnessError, FileStat, SessionEnv, ShellOptions, ShellOutput};
-use std::path::{Path, PathBuf};
+use agentic_harness::{AgentContext, AgenticHarnessError, SandboxConnector};
 
-pub struct E2bEnv {
-    cwd: PathBuf,
-    // Store the user's E2B sandbox/client handle here.
-}
-
-impl SessionEnv for E2bEnv {
-    fn exec(&self, command: &str, options: ShellOptions) -> Result<ShellOutput, AgenticHarnessError> {
-        // Forward command, ShellOptions::cwd, ShellOptions::env, and ShellOptions::timeout to E2B.
-        todo!("wire E2B command execution")
-    }
-
-    fn read_file(&self, path: &str) -> Result<String, AgenticHarnessError> { todo!("read file from E2B") }
-    fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgenticHarnessError> { todo!("write file to E2B") }
-    fn stat(&self, path: &str) -> Result<FileStat, AgenticHarnessError> { todo!("map E2B file details") }
-    fn readdir(&self, path: &str) -> Result<Vec<String>, AgenticHarnessError> { todo!("list E2B files") }
-    fn exists(&self, path: &str) -> Result<bool, AgenticHarnessError> { todo!("check E2B path") }
-    fn mkdir(&self, path: &str) -> Result<(), AgenticHarnessError> { todo!("create E2B directory") }
-    fn rm(&self, path: &str, recursive: bool) -> Result<(), AgenticHarnessError> { todo!("delete E2B path") }
-    fn cwd(&self) -> &Path { &self.cwd }
-    fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = Path::new(path);
-        if path.is_absolute() { path.to_path_buf() } else { self.cwd.join(path) }
-    }
+fn e2b_session(
+    ctx: &AgentContext,
+    endpoint: &str,
+    token: &str,
+) -> Result<agentic_harness::Session, AgenticHarnessError> {
+    let env = SandboxConnector::e2b(endpoint, "/workspace/project")
+        .header("Authorization", format!("Bearer {token}"))
+        .into_session_env();
+    ctx.try_session_with_id_and_env("e2b", env)
 }
 ```
 
-Wire it from trusted handler code:
+After binding, `session.shell`, `session.read`, `session.write`,
+`session.grep`, `session.glob`, and related helpers execute inside E2B.
 
-```rust
-let e2b_env = E2bEnv::new(/* sandbox client/handle */);
-let session = ctx.session_with_id_and_env("e2b", e2b_env);
-let test = session.shell("cargo test")?;
-```
-
-After binding, `session.shell`, `session.read`, `session.write`, `session.grep`, `session.glob`, and related helpers execute inside E2B. Verify with `cargo fmt --check`, `cargo test`, and `cargo clippy -- -D warnings` when available.
+If the project uses an E2B SDK directly, create a project-local `SessionEnv`
+module and map command execution, cwd, env, timeout, and file operations to the
+SDK. Preserve `ShellOptions::cwd`, env, and timeout semantics. Keep API keys
+and sandbox credentials in trusted Rust env/config.
 "#
 }
 
 fn native_vercel_connector_markdown() -> &'static str {
     r#"# Rust-native Vercel Sandbox connector
 
-You are an AI coding agent installing a Vercel Sandbox connector for native Agentic Harness. Use this as the first-class hosted coding target when a task needs an isolated Linux filesystem and shell.
-
-Create or reuse a Vercel Sandbox in trusted Rust code, then wrap it in a `SessionEnv` implementation.
-
-Build a Rust module that adapts the user's Vercel Sandbox control surface into `agentic_harness::SessionEnv`. Match the core coding-agent operations: command execution, read/write, stat, readdir, exists, mkdir, rm, cwd, and path resolution.
-
-Important requirements:
-
-- Map `ShellOptions::cwd`, `ShellOptions::env`, and `ShellOptions::timeout` onto the Vercel sandbox command API.
-- Never pass host API keys into prompt text. Use the provider's auth/config layer or explicit command env only.
-- Return `ShellOutput { stdout, stderr, exit_code }` and `FileStat` with accurate file/directory/symlink/size metadata.
-- Keep the connector as ordinary Rust source in the user's project, not a generated adapter.
-
-Use `ctx.shell_with_options(...)` and the `SessionEnv for AgentContext` implementation as the local reference while wiring the remote provider:
+Use this as the first-class hosted coding target when a task needs an isolated
+Linux filesystem and shell. Create or reuse a Vercel Sandbox in trusted Rust
+code, then expose it through the `HttpSessionEnv` protocol or a project-local
+`SessionEnv` module.
 
 ```rust
-let vercel_env = VercelSandboxEnv::new(/* sandbox client/handle */);
-let session = ctx.session_with_id_and_env("project", vercel_env);
-let status = session.shell("cargo test")?;
+use agentic_harness::{AgentContext, AgenticHarnessError, SandboxConnector};
+
+fn vercel_session(
+    ctx: &AgentContext,
+    endpoint: &str,
+    token: &str,
+) -> Result<agentic_harness::Session, AgenticHarnessError> {
+    let env = SandboxConnector::vercel(endpoint, "/workspace/project")
+        .header("Authorization", format!("Bearer {token}"))
+        .into_session_env();
+    ctx.try_session_with_id_and_env("project", env)
+}
 ```
 
 After binding, normal session helpers execute inside Vercel Sandbox.
+
+If the project uses `@vercel/sandbox` through a sidecar or direct SDK bridge,
+preserve `ShellOptions::cwd`, `ShellOptions::env`, and
+`ShellOptions::timeout`, and keep API keys in trusted Rust env/config instead of
+prompt text.
 "#
 }
 
@@ -10026,6 +10701,9 @@ enum ScaffoldTemplate {
     Coding,
     CodeReview,
     TestFixer,
+    DocsWriter,
+    RefactorAgent,
+    ReleaseAgent,
     RepoAnalyst,
     Support,
 }
@@ -10037,6 +10715,9 @@ const BUILT_IN_TEMPLATES: &[ScaffoldTemplate] = &[
     ScaffoldTemplate::Coding,
     ScaffoldTemplate::CodeReview,
     ScaffoldTemplate::TestFixer,
+    ScaffoldTemplate::DocsWriter,
+    ScaffoldTemplate::RefactorAgent,
+    ScaffoldTemplate::ReleaseAgent,
     ScaffoldTemplate::RepoAnalyst,
     ScaffoldTemplate::Support,
 ];
@@ -10050,10 +10731,13 @@ impl ScaffoldTemplate {
             "coding" => Ok(Self::Coding),
             "code-review" => Ok(Self::CodeReview),
             "test-fixer" => Ok(Self::TestFixer),
+            "docs-writer" => Ok(Self::DocsWriter),
+            "refactor-agent" => Ok(Self::RefactorAgent),
+            "release-agent" => Ok(Self::ReleaseAgent),
             "repo-analyst" => Ok(Self::RepoAnalyst),
             "support" => Ok(Self::Support),
             other => Err(format!(
-                "Unknown template \"{other}\". Available templates: hello, triage, data, coding, code-review, test-fixer, repo-analyst, support"
+                "Unknown template \"{other}\". Available templates: hello, triage, data, coding, code-review, test-fixer, docs-writer, refactor-agent, release-agent, repo-analyst, support"
             )
             .into()),
         }
@@ -10067,6 +10751,9 @@ impl ScaffoldTemplate {
             Self::Coding => "coding",
             Self::CodeReview => "code-review",
             Self::TestFixer => "test-fixer",
+            Self::DocsWriter => "docs-writer",
+            Self::RefactorAgent => "refactor-agent",
+            Self::ReleaseAgent => "release-agent",
             Self::RepoAnalyst => "repo-analyst",
             Self::Support => "support",
         }
@@ -10080,6 +10767,9 @@ impl ScaffoldTemplate {
             Self::Coding => "code",
             Self::CodeReview => "code-review",
             Self::TestFixer => "test-fixer",
+            Self::DocsWriter => "docs-writer",
+            Self::RefactorAgent => "refactor-agent",
+            Self::ReleaseAgent => "release-agent",
             Self::RepoAnalyst => "repo-analyst",
             Self::Support => "support",
         }
@@ -10099,6 +10789,15 @@ impl ScaffoldTemplate {
             Self::TestFixer => {
                 "Focused test repair agent that turns failing checks into a repair plan."
             }
+            Self::DocsWriter => {
+                "Documentation writer agent that updates docs from repository context."
+            }
+            Self::RefactorAgent => {
+                "Focused refactor agent that plans safe structural code improvements."
+            }
+            Self::ReleaseAgent => {
+                "Release preparation agent that checks readiness and drafts release notes."
+            }
             Self::RepoAnalyst => {
                 "Repository analyst agent that inventories files, entrypoints, and project shape."
             }
@@ -10114,6 +10813,9 @@ impl ScaffoldTemplate {
             | Self::Coding
             | Self::CodeReview
             | Self::TestFixer
+            | Self::DocsWriter
+            | Self::RefactorAgent
+            | Self::ReleaseAgent
             | Self::RepoAnalyst
             | Self::Support => &[
                 "Cargo.toml",
@@ -10133,6 +10835,9 @@ impl ScaffoldTemplate {
             Self::Coding => scaffold_coding_main_rs(),
             Self::CodeReview => scaffold_code_review_main_rs(),
             Self::TestFixer => scaffold_test_fixer_main_rs(),
+            Self::DocsWriter => scaffold_docs_writer_main_rs(),
+            Self::RefactorAgent => scaffold_refactor_agent_main_rs(),
+            Self::ReleaseAgent => scaffold_release_agent_main_rs(),
             Self::RepoAnalyst => scaffold_repo_analyst_main_rs(),
             Self::Support => scaffold_support_main_rs(),
         }
@@ -10239,6 +10944,15 @@ fn scaffold_sample_payload(template: ScaffoldTemplate) -> &'static str {
         }
         ScaffoldTemplate::TestFixer => {
             "{\"failingCheck\":\"cargo test\",\"failureOutput\":\"paste failing output here\"}"
+        }
+        ScaffoldTemplate::DocsWriter => {
+            "{\"prompt\":\"Update README with the current behavior\",\"paths\":[\"README.md\"]}"
+        }
+        ScaffoldTemplate::RefactorAgent => {
+            "{\"prompt\":\"Refactor duplicated code safely\",\"checks\":[\"cargo test\"]}"
+        }
+        ScaffoldTemplate::ReleaseAgent => {
+            "{\"version\":\"0.1.0\",\"checks\":[\"cargo test\",\"cargo clippy -- -D warnings\"]}"
         }
         ScaffoldTemplate::RepoAnalyst => {
             "{\"question\":\"Map this repository and identify the main entrypoints\"}"
@@ -10573,6 +11287,170 @@ fn app() -> Result<AgentApp, AgenticHarnessError> {
 					"Apply a focused fix, then rerun the failing check."
 				],
 				"summary": "Test-fixer template prepared a repair loop scaffold. Add model-backed patch generation next."
+			}))
+		})))
+}
+
+fn main() {
+	let code = match app().and_then(run_cli) {
+		Ok(code) => code,
+		Err(err) => {
+			eprintln!("[agentic-harness] {err}");
+			1
+		}
+	};
+	std::process::exit(code);
+}
+"#
+}
+
+fn scaffold_docs_writer_main_rs() -> &'static str {
+    r#"use agentic_harness::{run_cli, AgentApp, AgentContext, AgentDefinition, AgenticHarnessError};
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Debug, Deserialize)]
+struct DocsWriterPayload {
+	prompt: Option<String>,
+	paths: Option<Vec<String>>,
+}
+
+fn app() -> Result<AgentApp, AgenticHarnessError> {
+	Ok(AgentApp::new()
+		.with_workspace(".")
+		.load_workspace_context()?
+		.agent(AgentDefinition::webhook("docs-writer", |ctx: AgentContext| {
+			let payload: DocsWriterPayload = ctx.payload()?;
+			let prompt = payload
+				.prompt
+				.unwrap_or_else(|| "Update project documentation".to_string());
+			let paths = payload.paths.unwrap_or_else(|| vec!["README.md".to_string()]);
+			let existing = paths
+				.iter()
+				.filter(|path| ctx.exists(path))
+				.cloned()
+				.collect::<Vec<_>>();
+			Ok(json!({
+				"id": ctx.id(),
+				"prompt": prompt,
+				"candidateDocs": paths,
+				"existingDocs": existing,
+				"plan": [
+					"Inspect existing docs and current project behavior.",
+					"Update only documentation files unless explicitly approved.",
+					"Summarize user-visible behavior changes and remaining gaps."
+				],
+				"summary": "Docs-writer template prepared a documentation update workflow. Add model-backed patch generation next."
+			}))
+		})))
+}
+
+fn main() {
+	let code = match app().and_then(run_cli) {
+		Ok(code) => code,
+		Err(err) => {
+			eprintln!("[agentic-harness] {err}");
+			1
+		}
+	};
+	std::process::exit(code);
+}
+"#
+}
+
+fn scaffold_refactor_agent_main_rs() -> &'static str {
+    r#"use agentic_harness::{run_cli, AgentApp, AgentContext, AgentDefinition, AgenticHarnessError, ShellOptions};
+use serde::Deserialize;
+use serde_json::json;
+use std::time::Duration;
+
+#[derive(Debug, Deserialize)]
+struct RefactorPayload {
+	prompt: Option<String>,
+	checks: Option<Vec<String>>,
+	#[serde(rename = "allowPaths")]
+	allow_paths: Option<Vec<String>>,
+}
+
+fn app() -> Result<AgentApp, AgenticHarnessError> {
+	Ok(AgentApp::new()
+		.with_workspace(".")
+		.load_workspace_context()?
+		.agent(AgentDefinition::webhook("refactor-agent", |ctx: AgentContext| {
+			let payload: RefactorPayload = ctx.payload()?;
+			let prompt = payload
+				.prompt
+				.unwrap_or_else(|| "Refactor duplicated code safely".to_string());
+			let status = ctx.shell_with_options(
+				"git status --short || true",
+				ShellOptions::new().timeout(Duration::from_secs(5)),
+			)?;
+			Ok(json!({
+				"id": ctx.id(),
+				"prompt": prompt,
+				"workspaceStatus": status.stdout,
+				"allowPaths": payload.allow_paths.unwrap_or_default(),
+				"checks": payload.checks.unwrap_or_default(),
+				"plan": [
+					"Find the smallest refactor boundary.",
+					"Preserve public behavior and existing tests.",
+					"Apply structural changes only after the affected checks are clear."
+				],
+				"summary": "Refactor-agent template prepared a safe refactor workflow. Add model-backed patch generation next."
+			}))
+		})))
+}
+
+fn main() {
+	let code = match app().and_then(run_cli) {
+		Ok(code) => code,
+		Err(err) => {
+			eprintln!("[agentic-harness] {err}");
+			1
+		}
+	};
+	std::process::exit(code);
+}
+"#
+}
+
+fn scaffold_release_agent_main_rs() -> &'static str {
+    r#"use agentic_harness::{run_cli, AgentApp, AgentContext, AgentDefinition, AgenticHarnessError, ShellOptions};
+use serde::Deserialize;
+use serde_json::json;
+use std::time::Duration;
+
+#[derive(Debug, Deserialize)]
+struct ReleasePayload {
+	version: Option<String>,
+	checks: Option<Vec<String>>,
+}
+
+fn app() -> Result<AgentApp, AgenticHarnessError> {
+	Ok(AgentApp::new()
+		.with_workspace(".")
+		.load_workspace_context()?
+		.agent(AgentDefinition::webhook("release-agent", |ctx: AgentContext| {
+			let payload: ReleasePayload = ctx.payload()?;
+			let version = payload.version.unwrap_or_else(|| "next".to_string());
+			let status = ctx.shell_with_options(
+				"git status --short || true",
+				ShellOptions::new().timeout(Duration::from_secs(5)),
+			)?;
+			Ok(json!({
+				"id": ctx.id(),
+				"version": version,
+				"workspaceStatus": status.stdout,
+				"checks": payload.checks.unwrap_or_else(|| vec![
+					"cargo test".to_string(),
+					"cargo clippy -- -D warnings".to_string()
+				]),
+				"plan": [
+					"Verify the worktree and release notes are ready.",
+					"Run the configured release checks.",
+					"Prepare a release summary without tagging or publishing unless explicitly approved."
+				],
+				"summary": "Release-agent template prepared a release readiness workflow. Add project-specific packaging next."
 			}))
 		})))
 }
@@ -10977,7 +11855,7 @@ mod tests {
 
         let templates = styled_wizard_options(find_wizard_step("2").unwrap(), Path::new("."));
         assert!(templates.contains("Template panel"));
-        assert!(templates.contains("8 built-in"));
+        assert!(templates.contains("11 built-in"));
         assert!(templates.contains("agentic-harness templates ls --workspace . --json"));
         assert!(templates.contains("agentic-harness tpl preview coding --workspace . --json"));
         assert!(templates.contains("Preview picks"));
@@ -10987,6 +11865,12 @@ mod tests {
         assert!(templates.contains("Repository review agent"));
         assert!(templates.contains("test-fixer"));
         assert!(templates.contains("Focused test repair agent"));
+        assert!(templates.contains("docs-writer"));
+        assert!(templates.contains("Documentation writer agent"));
+        assert!(templates.contains("refactor-agent"));
+        assert!(templates.contains("Focused refactor agent"));
+        assert!(templates.contains("release-agent"));
+        assert!(templates.contains("Release preparation agent"));
         assert!(templates.contains("agentic-harness new ./my-agent --template coding"));
 
         let llm = styled_wizard_options(find_wizard_step("3").unwrap(), workspace);

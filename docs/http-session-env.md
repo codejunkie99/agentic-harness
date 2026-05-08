@@ -8,6 +8,11 @@ HTTP client. Non-native adapters can use `HttpSessionEnv::with_transport(...)`
 and provide an `HttpSessionTransport` backed by platform HTTP, such as Worker
 `fetch`.
 
+For named hosted providers that already expose this protocol, prefer
+`SandboxConnector::vercel(...)`, `SandboxConnector::daytona(...)`, or
+`SandboxConnector::e2b(...)`. Those helpers tag requests with the provider name
+and return an `HttpSessionEnv`.
+
 ## Requests
 
 Every request contains an `op` field:
