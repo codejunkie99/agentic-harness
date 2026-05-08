@@ -97,9 +97,9 @@ agentic-harness code --workspace . --llm auto \
 
 The harness writes a run-scoped brief to `.agentic-harness/runs/<id>/coding-brief.md`, streams progress, captures the agent result, and saves a structured summary at `.agentic-harness/runs/latest.{md,json}` so a person or another agent can read what happened.
 
-### Issue Triage (CI)
+### Snapshot Repair (CI)
 
-A CLI-only agent that runs in CI when an issue is opened. No HTTP trigger — just `agentic-harness run triage`. Skills and roles in the workspace shape behavior; secrets stay in env.
+A CLI-only agent that runs in CI after `cargo test` produces failing `*.snap.new` files. It reads the diffs, decides which are safe to bless under a workspace policy (additive output, ordering changes, whitespace), applies the safe ones, and flags the rest for human review. No HTTP trigger.
 
 ```rust
 // src/main.rs
@@ -108,27 +108,29 @@ use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Deserialize)]
-struct TriagePayload {
-    issue: String,
+struct Payload {
+    failing: Vec<String>, // paths to *.snap.new files
 }
 
 fn app() -> Result<AgentApp, AgenticHarnessError> {
     Ok(AgentApp::new()
         .with_workspace(".")
         .load_workspace_context()?
-        .agent(AgentDefinition::cli("triage", |ctx: AgentContext| {
-            let TriagePayload { issue } = ctx.payload()?;
-
-            // Roles and skills are auto-discovered from the workspace.
+        .agent(AgentDefinition::cli("snapshot-repair", |ctx: AgentContext| {
+            let Payload { failing } = ctx.payload()?;
             let session = ctx.session_with_id(ctx.id());
-            let response = session.prompt_with_options(
-                format!("Triage this issue and return severity + summary:\n\n{issue}"),
-                PromptOptions::new().role("triager"),
+
+            // The "snapshot-reviewer" role lives in .agentic-harness/roles/.
+            // It tells the model what counts as a safe bless vs. a human-only call.
+            let report = session.prompt_with_options(
+                format!(
+                    "Review these failing snapshots and bless only the safe ones:\n\n{}",
+                    failing.join("\n"),
+                ),
+                PromptOptions::new().role("snapshot-reviewer"),
             )?;
 
-            Ok(json!({
-                "summary": response.text(),
-            }))
+            Ok(json!({ "report": report.text() }))
         })))
 }
 
@@ -136,61 +138,111 @@ fn main() { std::process::exit(app().and_then(run_cli).unwrap_or(1)); }
 ```
 
 ```bash
-agentic-harness run triage --workspace . --id issue-1234 \
-  --payload '{"issue":"login flakes on Safari"}'
+# In CI, after a failed test run, hand the new snapshots to the agent
+SNAPS=$(find . -name '*.snap.new' | jq -Rsc 'split("\n") | map(select(length>0))')
+agentic-harness run snapshot-repair --workspace . --id "ci-$RUN" \
+  --payload "{\"failing\":$SNAPS}"
 ```
 
-### Remote Sandbox (Daytona / Vercel Sandbox / E2B)
+### Codebase Cartographer (Parallel Tasks)
 
-Agentic Harness's deployment primitive for coding agents: the agent stays native Rust; shell and file operations run inside a remote Linux sandbox over a small HTTP protocol. Configure once with `setup sandbox`, then any session can target it via `HttpSessionEnv`.
+A one-shot agent that produces `ARCHITECTURE.md` for a repo it's never seen. It fans out one detached `Session::task` per top-level module, each with its own message history but sharing the workspace, then merges the children's notes into a single document. This is the Rust analogue of "kick off N research subagents in parallel and stitch the results."
+
+```rust
+// src/main.rs
+use agentic_harness::prelude::*;
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Deserialize)]
+struct Payload { src_dir: Option<String> }
+
+fn app() -> Result<AgentApp, AgenticHarnessError> {
+    Ok(AgentApp::new()
+        .with_workspace(".")
+        .load_workspace_context()?
+        .agent(AgentDefinition::cli("cartograph", |ctx: AgentContext| {
+            let src = ctx.payload::<Payload>()?.src_dir.unwrap_or_else(|| "src".into());
+            let session = ctx.session_with_id(ctx.id());
+
+            let mut sections = Vec::new();
+            for entry in session.readdir(&src)?.into_iter().filter(|e| e.is_dir) {
+                let child = session.task_with_id(
+                    format!("module-{}", entry.name),
+                    format!(
+                        "Summarize the public surface and responsibilities of {}/{}.\n\
+                         List entry points and any cross-module imports.",
+                        src, entry.name,
+                    ),
+                    TaskOptions::new().role("module-summarizer"),
+                )?;
+                sections.push(format!("## {}\n\n{}\n", entry.name, child.text()));
+            }
+
+            session.write("ARCHITECTURE.md", &sections.join("\n"))?;
+            Ok(json!({ "modules": sections.len() }))
+        })))
+}
+
+fn main() { std::process::exit(app().and_then(run_cli).unwrap_or(1)); }
+```
+
+Each child task gets a fresh `AGENTS.md` + skill discovery scoped to its working directory, so adding a `module-summarizer` role tunes every task at once.
+
+### Reproducer Sandbox (Remote Linux)
+
+When an issue says "this fails on Linux but I'm on macOS," the agent provisions a clean Linux sandbox over `HttpSessionEnv`, checks out the branch, runs the reproducer steps, and captures evidence. The agent stays a native Rust binary on your laptop; shell and file operations run on the other side of an HTTP boundary.
 
 ```rust
 use agentic_harness::HttpSessionEnv;
 
-let remote = HttpSessionEnv::new(
-        "https://sandbox.example/session",
+let sandbox = HttpSessionEnv::new(
+        std::env::var("SANDBOX_URL")?,   // Vercel Sandbox / Daytona / E2B / your own
         "/workspace",
     )
-    .header(
-        "Authorization",
-        format!("Bearer {}", std::env::var("SANDBOX_TOKEN")?),
-    );
+    .header("Authorization", format!("Bearer {}", std::env::var("SANDBOX_TOKEN")?));
 
-let session = ctx.session_with_id_and_env("remote", remote);
-let test_run = session.shell("cargo test")?;
-session.write("notes.md", "Findings...")?;
+let session = ctx.session_with_id_and_env("repro", sandbox);
+session.shell(&format!("git clone {repo} /workspace/repo && git -C /workspace/repo checkout {branch}"))?;
+let probe = session.shell("cd /workspace/repo && cargo test --no-fail-fast 2>&1 | tail -200")?;
+
+session.write(
+    "/workspace/repro-report.md",
+    &format!("## exit: {}\n\n```\n{}\n```\n", probe.status, probe.stdout),
+)?;
 ```
 
-The CLI mirrors this for ad-hoc work:
+The same protocol is documented in [`docs/http-session-env.md`](docs/http-session-env.md) — any sandbox provider that speaks it works without a custom adapter. The CLI surfaces it for ad-hoc use too:
 
 ```bash
-agentic-harness setup sandbox --target daytona --print | claude
+agentic-harness setup sandbox --target e2b --endpoint $SANDBOX_URL
 agentic-harness sandbox status --json
-agentic-harness sandbox exec "cargo test" --json
+agentic-harness sandbox exec "uname -a && rustc --version" --json
 ```
 
-When `.agentic-harness/sandbox.toml` points at a remote endpoint, `agentic-harness code` syncs the workspace into the sandbox and runs checks there instead of locally.
+### MCP Tools (Sentry)
 
-### MCP Tools
-
-MCP servers plug in as runtime tool providers. Streamable HTTP by default; pass `transport: Sse` for legacy SSE servers.
+MCP servers plug in as runtime tool providers. Connect once, hand the tools to a session, and the model can call `find_event`, `list_issues`, etc. directly. Streamable HTTP by default; pass `transport: Sse` for legacy SSE servers.
 
 ```rust
-use agentic_harness::{McpServerOptions, McpTransport};
+use agentic_harness::McpServerOptions;
 
-let github_tools = ctx.connect_mcp(
-    "github",
-    McpServerOptions::new("https://mcp.github.com/mcp")
-        .header("Authorization", format!("Bearer {}", std::env::var("GITHUB_TOKEN")?)),
+let sentry = ctx.connect_mcp(
+    "sentry",
+    McpServerOptions::new("https://mcp.sentry.io/mcp")
+        .header("Authorization", format!("Bearer {}", std::env::var("SENTRY_TOKEN")?)),
 )?;
 
-let session = ctx.session_with_id(ctx.id()).with_tools(github_tools);
-let answer = session.prompt(payload.prompt)?;
+let session = ctx.session_with_id(ctx.id()).with_tools(sentry);
+let plan = session.prompt(
+    "Find the highest-volume new error in the last 24h, locate the commit that introduced it, \
+     and draft a hot-fix plan with rollback steps.",
+)?;
 ```
 
-### Schema-Guided Results
+### Schema-Guided Cargo Audit
 
-Get typed, schema-validated data back from a prompt without manual JSON wrangling.
+Get typed, schema-validated data back from a prompt without manual JSON wrangling. The model returns prose plus a structured block; `prompt_json_with_options` extracts and decodes it directly into your type.
 
 ```rust
 use agentic_harness::PromptOptions;
@@ -198,25 +250,49 @@ use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Deserialize)]
-struct TriageResult {
-    approved: bool,
-    comments: Vec<String>,
+struct CrateAudit {
+    advisories: Vec<Advisory>,
+    risk: Risk,
+    next_action: String,
 }
 
-let result: TriageResult = session.prompt_json_with_options(
-    "Review this change.",
+#[derive(Deserialize)]
+struct Advisory { id: String, package: String, severity: Severity }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Severity { Low, Medium, High, Critical }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Risk { None, Low, Medium, High, Critical }
+
+let audit: CrateAudit = session.prompt_json_with_options(
+    "Run `cargo audit`, group by severity, and pick the smallest safe upgrade plan.",
     PromptOptions::new().result_schema(json!({
         "type": "object",
+        "required": ["advisories", "risk", "next_action"],
         "properties": {
-            "approved":  { "type": "boolean" },
-            "comments":  { "type": "array", "items": { "type": "string" } }
-        },
-        "required": ["approved", "comments"]
+            "advisories": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "package", "severity"],
+                    "properties": {
+                        "id":       { "type": "string" },
+                        "package":  { "type": "string" },
+                        "severity": { "enum": ["low", "medium", "high", "critical"] }
+                    }
+                }
+            },
+            "risk":        { "enum": ["none", "low", "medium", "high", "critical"] },
+            "next_action": { "type": "string" }
+        }
     })),
 )?;
 ```
 
-Structured `---RESULT_START---` / `---RESULT_END---` block extraction is built in, so the model can return prose plus a typed payload.
+Structured `---RESULT_START---` / `---RESULT_END---` block extraction is built in, so the model can return reasoning prose alongside the typed payload.
 
 ## Agents And Sessions
 
