@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" width="960" height="560" font-family="ui-sans-serif, -apple-system, Segoe UI, Inter, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+    <linearGradient id="rust" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+    <linearGradient id="harness" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#e0e7ff"/>
+      <stop offset="100%" stop-color="#c7d2fe"/>
+    </linearGradient>
+    <linearGradient id="target" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#dcfce7"/>
+      <stop offset="100%" stop-color="#bbf7d0"/>
+    </linearGradient>
+    <style><![CDATA[
+      .title { font-size: 18px; font-weight: 700; fill: #111827; }
+      .label { font-size: 14px; font-weight: 600; fill: #111827; }
+      .sub   { font-size: 12px; fill: #374151; }
+      .mono  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; fill: #1f2937; }
+      .pill  { font-size: 11px; font-weight: 600; fill: #1f2937; }
+      .layer { font-size: 11px; font-weight: 700; fill: #6b7280; letter-spacing: 0.12em; }
+      .box   { stroke: #1f2937; stroke-width: 1.4; }
+      .dim   { stroke: #9ca3af; stroke-width: 1; stroke-dasharray: 4 3; fill: none; }
+    ]]></style>
+  </defs>
+
+  <!-- Title -->
+  <text x="480" y="36" text-anchor="middle" class="title">Agentic Harness — one Rust agent, anywhere it needs to run</text>
+
+  <!-- LAYER 1: YOUR CODE -->
+  <text x="60" y="80" class="layer">YOUR CODE</text>
+  <rect x="60" y="92" width="840" height="84" rx="10" class="box" fill="url(#rust)"/>
+  <text x="80" y="120" class="label">Rust Agent</text>
+  <text x="80" y="140" class="sub">A plain Rust binary. Define handlers with the SDK; configure with AGENTS.md, roles, and skills.</text>
+  <g class="mono">
+    <text x="80" y="162">AgentApp::new().agent(AgentDefinition::webhook("hello", |ctx| { ... }))</text>
+  </g>
+
+  <!-- arrow down -->
+  <line x1="480" y1="176" x2="480" y2="206" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- LAYER 2: HARNESS -->
+  <text x="60" y="218" class="layer">HARNESS</text>
+  <rect x="60" y="230" width="840" height="160" rx="10" class="box" fill="url(#harness)"/>
+  <text x="80" y="258" class="label">SDK + CLI + Runtime</text>
+
+  <!-- SDK column -->
+  <rect x="80" y="276" width="240" height="98" rx="8" fill="#ffffff" stroke="#4338ca" stroke-width="1.2"/>
+  <text x="200" y="295" text-anchor="middle" class="pill">SDK</text>
+  <g class="sub">
+    <text x="96" y="316">Sessions · Compaction · Tasks</text>
+    <text x="96" y="334">ModelClient (provider-neutral)</text>
+    <text x="96" y="352">SessionEnv · Tools · MCP</text>
+    <text x="96" y="370">Roles · Skills · AGENTS.md</text>
+  </g>
+
+  <!-- CLI column -->
+  <rect x="340" y="276" width="240" height="98" rx="8" fill="#ffffff" stroke="#4338ca" stroke-width="1.2"/>
+  <text x="460" y="295" text-anchor="middle" class="pill">CLI</text>
+  <g class="mono">
+    <text x="356" y="316">agentic-harness wizard</text>
+    <text x="356" y="334">agentic-harness code --llm auto</text>
+    <text x="356" y="352">agentic-harness dev / run</text>
+    <text x="356" y="370">agentic-harness build / serve</text>
+  </g>
+
+  <!-- HTTP column -->
+  <rect x="600" y="276" width="280" height="98" rx="8" fill="#ffffff" stroke="#4338ca" stroke-width="1.2"/>
+  <text x="740" y="295" text-anchor="middle" class="pill">HTTP &amp; Sessions</text>
+  <g class="mono">
+    <text x="616" y="316">POST /agents/&lt;name&gt;/&lt;id&gt;</text>
+    <text x="616" y="334">GET  /agents/&lt;name&gt;/&lt;id&gt;/events</text>
+  </g>
+  <g class="sub">
+    <text x="616" y="354">SSE streaming · file SessionStore</text>
+    <text x="616" y="372">Worker JSON ABI · WASM adapter</text>
+  </g>
+
+  <!-- arrow down -->
+  <line x1="480" y1="392" x2="480" y2="422" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- LAYER 3: EXECUTION TARGETS -->
+  <text x="60" y="434" class="layer">EXECUTION TARGETS</text>
+  <rect x="60" y="446" width="840" height="100" rx="10" class="box" fill="url(#target)"/>
+
+  <!-- target boxes -->
+  <g>
+    <rect x="80" y="462" width="180" height="68" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.2"/>
+    <text x="170" y="482" text-anchor="middle" class="pill">Local</text>
+    <text x="170" y="502" text-anchor="middle" class="sub">checkout · dev loop</text>
+    <text x="170" y="520" text-anchor="middle" class="sub">cargo test, gh, git</text>
+  </g>
+  <g>
+    <rect x="270" y="462" width="180" height="68" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.2"/>
+    <text x="360" y="482" text-anchor="middle" class="pill">CI</text>
+    <text x="360" y="502" text-anchor="middle" class="sub">GitHub Actions · GitLab</text>
+    <text x="360" y="520" text-anchor="middle" class="sub">issue triage, code review</text>
+  </g>
+  <g>
+    <rect x="460" y="462" width="240" height="68" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.2"/>
+    <text x="580" y="482" text-anchor="middle" class="pill">Remote Sandbox</text>
+    <text x="580" y="502" text-anchor="middle" class="sub">Vercel Sandbox · Daytona · E2B</text>
+    <text x="580" y="520" text-anchor="middle" class="sub">via HttpSessionEnv</text>
+  </g>
+  <g>
+    <rect x="710" y="462" width="170" height="68" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.2"/>
+    <text x="795" y="482" text-anchor="middle" class="pill">Cloudflare Edge</text>
+    <text x="795" y="502" text-anchor="middle" class="sub">Workers + Durable Objects</text>
+    <text x="795" y="520" text-anchor="middle" class="sub">control · webhooks</text>
+  </g>
+</svg>
