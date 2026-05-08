@@ -12,8 +12,8 @@ Agentic Harness isn't another AI SDK. It's a proper runtime-agnostic framework �
   <img src="./assets/architecture.svg" alt="Agentic Harness architecture: a Rust agent compiled against the SDK, driven by the CLI and HTTP runtime, runnable on local checkouts, CI, remote sandboxes (Vercel/Daytona/E2B), or Cloudflare edge." width="880">
 </p>
 
-> 📚 **Documentation lives in the [Wiki](https://github.com/codejunkie99/agentic-harness/wiki).**
-> Architecture, execution targets, runtime config, HTTP SessionEnv protocol, Cloudflare runtime, and release notes — all there.
+> 📚 **Documentation lives in [`docs/`](docs/).**
+> Architecture, execution targets, runtime config, HTTP SessionEnv protocol, Cloudflare runtime, feature status, and release notes — all there.
 
 ## Workspace
 
@@ -345,7 +345,7 @@ agentic-harness build --workspace . --target node        # alias — still emits
 agentic-harness build --workspace . --target cloudflare  # Worker adapter + Durable Object bindings
 ```
 
-`--target cloudflare` produces non-proxy Worker boundary artifacts: `_entry.js`, `agentic_harness_worker.js`, `wrangler.jsonc`, and an adapter contract documented in `agentic_harness_app.d.ts`. See the [Cloudflare runtime guide](https://github.com/codejunkie99/agentic-harness/wiki/Cloudflare-Runtime) for the full pipeline (`--worker-app`, `--worker-wasm`, `--worker-wasm-crate`).
+`--target cloudflare` produces non-proxy Worker boundary artifacts: `_entry.js`, `agentic_harness_worker.js`, `wrangler.jsonc`, and an adapter contract documented in `agentic_harness_app.d.ts`. See [`docs/cloudflare-runtime.md`](docs/cloudflare-runtime.md) for the full pipeline (`--worker-app`, `--worker-wasm`, `--worker-wasm-crate`).
 
 ### Doctor, Smoke, Status
 
@@ -366,15 +366,16 @@ agentic-harness dashboard --workspace . --json    # status, templates, recent ru
 
 ## Documentation
 
-Long-form docs live in the **[Wiki](https://github.com/codejunkie99/agentic-harness/wiki)**:
+Long-form docs live in [`docs/`](docs/):
 
-- [Home](https://github.com/codejunkie99/agentic-harness/wiki) — start here
-- [Execution Targets](https://github.com/codejunkie99/agentic-harness/wiki/Execution-Targets) — local / CI / sandbox / Cloudflare split
-- [Runtime Config](https://github.com/codejunkie99/agentic-harness/wiki/Runtime-Config) — provider defaults, model registration
-- [HTTP SessionEnv Protocol](https://github.com/codejunkie99/agentic-harness/wiki/HTTP-Session-Env) — exact wire format for remote sandboxes
-- [Cloudflare Runtime](https://github.com/codejunkie99/agentic-harness/wiki/Cloudflare-Runtime) — Worker boundary build, Durable Objects, adapter ABI
-- [Feature Status](https://github.com/codejunkie99/agentic-harness/wiki/Feature-Status) — what's shipped, what's next
-- [Release Smoke Test](https://github.com/codejunkie99/agentic-harness/wiki/Release-Smoke-Test) — clean-machine pre-publish checklist
+- [Docs index](docs/README.md) — start here
+- [Execution Targets](docs/execution-targets.md) — local / CI / sandbox / Cloudflare split
+- [Runtime Config](docs/runtime-config.md) — provider defaults, model registration
+- [HTTP SessionEnv Protocol](docs/http-session-env.md) — exact wire format for remote sandboxes
+- [Cloudflare Runtime](docs/cloudflare-runtime.md) — Worker boundary build, Durable Objects, adapter ABI
+- [Feature Status](docs/feature-status.md) — what's shipped, with code/test/doc evidence
+- [Roadmap](docs/immediate-goals.md) — the next product slice and explicit non-goals
+- [Release Smoke Test](docs/release-smoke-test.md) — clean-machine pre-publish checklist
 
 ## Development
 
