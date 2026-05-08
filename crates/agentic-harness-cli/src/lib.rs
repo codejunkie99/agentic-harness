@@ -171,6 +171,26 @@ enum Commands {
         #[command(subcommand)]
         command: SetupCommands,
     },
+    /// Inspect or start local HTTP hosting for a native agent workspace.
+    Hosting {
+        #[command(subcommand)]
+        command: HostingCommands,
+    },
+    /// Start local HTTP hosting for a native agent workspace.
+    Host {
+        /// Cargo project containing the native Agentic Harness app.
+        #[arg(long, default_value = ".")]
+        workspace: PathBuf,
+        /// Address for the local HTTP server. Defaults to .agentic-harness/hosting.toml.
+        #[arg(long)]
+        addr: Option<String>,
+        /// Run in watch/reload development mode instead of one-shot serve mode.
+        #[arg(long)]
+        dev: bool,
+        /// Load env vars from a .env-format file.
+        #[arg(long = "env")]
+        env_files: Vec<PathBuf>,
+    },
     /// Run local sandbox file and shell operations.
     Sandbox {
         #[command(subcommand)]
@@ -478,6 +498,43 @@ enum SetupCommands {
         #[arg(long)]
         print: bool,
     },
+    /// Configure local HTTP hosting for a native agent workspace.
+    Hosting {
+        /// Workspace receiving hosting setup.
+        #[arg(long, default_value = ".")]
+        workspace: PathBuf,
+        /// Address for the local HTTP server.
+        #[arg(long, default_value = "127.0.0.1:3583")]
+        addr: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum HostingCommands {
+    /// Show local hosting config, URLs, and server capabilities.
+    Status {
+        /// Workspace containing .agentic-harness/hosting.toml.
+        #[arg(long, default_value = ".")]
+        workspace: PathBuf,
+        /// Print machine-readable local hosting status JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Start local HTTP hosting for a native agent workspace.
+    Start {
+        /// Cargo project containing the native Agentic Harness app.
+        #[arg(long, default_value = ".")]
+        workspace: PathBuf,
+        /// Address for the local HTTP server. Defaults to .agentic-harness/hosting.toml.
+        #[arg(long)]
+        addr: Option<String>,
+        /// Run in watch/reload development mode instead of one-shot serve mode.
+        #[arg(long)]
+        dev: bool,
+        /// Load env vars from a .env-format file.
+        #[arg(long = "env")]
+        env_files: Vec<PathBuf>,
+    },
 }
 
 pub fn main_entry() -> ExitCode {
@@ -578,6 +635,13 @@ fn try_main() -> Result<u8, Box<dyn std::error::Error>> {
         Some(Commands::Result { workspace, json }) => result_command(&workspace, json),
         Some(Commands::Template { command }) => template_command(command),
         Some(Commands::Setup { command }) => setup_command(command),
+        Some(Commands::Hosting { command }) => hosting_command(command),
+        Some(Commands::Host {
+            workspace,
+            addr,
+            dev,
+            env_files,
+        }) => host_command(&workspace, addr.as_deref(), dev, &env_files),
         Some(Commands::Sandbox { command }) => sandbox_command(command),
         Some(Commands::Doctor {
             workspace,
@@ -3332,6 +3396,7 @@ fn setup_command(command: SetupCommands) -> Result<u8, Box<dyn std::error::Error
             endpoint,
             print,
         } => setup_sandbox_command(&workspace, &target, endpoint.as_deref(), print),
+        SetupCommands::Hosting { workspace, addr } => setup_hosting_command(&workspace, &addr),
     }
 }
 
@@ -3434,6 +3499,75 @@ fn setup_sandbox_command(
         );
     }
     Ok(0)
+}
+
+fn setup_hosting_command(workspace: &Path, addr: &str) -> Result<u8, Box<dyn std::error::Error>> {
+    validate_local_host_addr(addr)?;
+    fs::create_dir_all(workspace.join(".agentic-harness"))?;
+    fs::write(
+        hosting_config_path(workspace),
+        format!(
+            "addr = \"{}\"\nmode = \"local\"\n",
+            escape_template_manifest_string(addr)
+        ),
+    )?;
+    let status = hosting_status(workspace);
+    println!(
+        "hosting: local ready - {}",
+        status
+            .base_url
+            .unwrap_or_else(|| format!("http://{}", status.addr))
+    );
+    println!("start: {}", status.start_command);
+    println!("status: {}", status.status_command);
+    Ok(0)
+}
+
+fn hosting_command(command: HostingCommands) -> Result<u8, Box<dyn std::error::Error>> {
+    match command {
+        HostingCommands::Status { workspace, json } => {
+            let status = hosting_status(&workspace);
+            if json {
+                print!("{}", format_hosting_status_json(&status)?);
+            } else {
+                print!("{}", format_hosting_status_report(&status));
+            }
+            Ok(if status.servable { 0 } else { 1 })
+        }
+        HostingCommands::Start {
+            workspace,
+            addr,
+            dev,
+            env_files,
+        } => host_command(&workspace, addr.as_deref(), dev, &env_files),
+    }
+}
+
+fn host_command(
+    workspace: &Path,
+    addr: Option<&str>,
+    dev: bool,
+    env_files: &[PathBuf],
+) -> Result<u8, Box<dyn std::error::Error>> {
+    let configured = load_hosting_config(workspace);
+    let addr = addr.unwrap_or(&configured.addr);
+    validate_local_host_addr(addr)?;
+    if dev {
+        let port = addr
+            .rsplit_once(':')
+            .and_then(|(_, port)| port.parse::<u16>().ok())
+            .ok_or_else(|| format!("Could not parse port from address {addr:?}"))?;
+        return run_dev_server(workspace, port, env_files);
+    }
+    run_cargo(
+        workspace,
+        [
+            "--agentic-harness-serve".to_string(),
+            "--addr".to_string(),
+            addr.to_string(),
+        ],
+        env_files,
+    )
 }
 
 #[derive(Debug, Subcommand)]
@@ -4070,6 +4204,194 @@ impl SessionEnv for FileMockSessionEnv {
             self.cwd.join(path)
         }
     }
+}
+
+#[derive(Debug)]
+struct HostingConfig {
+    addr: String,
+}
+
+#[derive(Debug)]
+struct HostingStatus {
+    workspace: PathBuf,
+    configured: bool,
+    servable: bool,
+    addr: String,
+    base_url: Option<String>,
+    health_url: Option<String>,
+    agents_url: Option<String>,
+    serve_command: String,
+    dev_command: String,
+    start_command: String,
+    status_command: String,
+    detail: String,
+}
+
+fn hosting_config_path(workspace: &Path) -> PathBuf {
+    workspace.join(".agentic-harness/hosting.toml")
+}
+
+fn load_hosting_config(workspace: &Path) -> HostingConfig {
+    let content = fs::read_to_string(hosting_config_path(workspace)).unwrap_or_default();
+    let addr =
+        parse_manifest_string(&content, "addr").unwrap_or_else(|_| "127.0.0.1:3583".to_string());
+    HostingConfig { addr }
+}
+
+fn hosting_status(workspace: &Path) -> HostingStatus {
+    let workspace_display = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let config = load_hosting_config(workspace);
+    let configured = hosting_config_path(workspace).exists();
+    let cargo_toml = workspace.join("Cargo.toml");
+    let main_rs = workspace.join("src/main.rs");
+    let servable = cargo_toml.exists() && main_rs.exists();
+    let base_url = hosting_base_url(&config.addr).ok();
+    let health_url = base_url.as_ref().map(|url| format!("{url}/health"));
+    let agents_url = base_url.as_ref().map(|url| format!("{url}/agents"));
+    let workspace_arg = workspace.display();
+    let serve_command = format!(
+        "agentic-harness serve --workspace {workspace_arg} --addr {}",
+        quote_cli_arg(&config.addr)
+    );
+    let dev_command = format!(
+        "agentic-harness dev --workspace {workspace_arg} --port {}",
+        hosting_port(&config.addr)
+            .map(|port| port.to_string())
+            .unwrap_or_else(|| "3583".to_string())
+    );
+    let start_command = format!("agentic-harness host --workspace {workspace_arg}");
+    let status_command = format!("agentic-harness hosting status --workspace {workspace_arg}");
+    let detail = if servable {
+        "native app can be served locally".to_string()
+    } else if !cargo_toml.exists() {
+        format!("No Cargo.toml found at {}", cargo_toml.display())
+    } else {
+        format!("No src/main.rs found at {}", main_rs.display())
+    };
+    HostingStatus {
+        workspace: workspace_display,
+        configured,
+        servable,
+        addr: config.addr,
+        base_url,
+        health_url,
+        agents_url,
+        serve_command,
+        dev_command,
+        start_command,
+        status_command,
+        detail,
+    }
+}
+
+fn validate_local_host_addr(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if addr.trim().is_empty() {
+        return Err("hosting address cannot be empty".into());
+    }
+    if addr.contains("://") {
+        return Err("hosting address must be host:port, not a URL".into());
+    }
+    let host = addr.rsplit_once(':').map(|(host, _)| host).unwrap_or("");
+    if !matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]") {
+        return Err(
+            "local hosting only accepts loopback addresses: 127.0.0.1, localhost, or ::1".into(),
+        );
+    }
+    if hosting_port(addr).is_none() {
+        return Err(format!("hosting address needs a valid port: {addr}").into());
+    }
+    Ok(())
+}
+
+fn hosting_port(addr: &str) -> Option<u16> {
+    addr.rsplit_once(':')
+        .and_then(|(_, port)| port.trim_end_matches(']').parse::<u16>().ok())
+}
+
+fn hosting_base_url(addr: &str) -> Result<String, Box<dyn std::error::Error>> {
+    validate_local_host_addr(addr)?;
+    Ok(format!("http://{addr}"))
+}
+
+fn format_hosting_status_report(status: &HostingStatus) -> String {
+    let mut out = String::new();
+    out.push_str("Agentic Harness Local Hosting\n");
+    out.push_str(&format!("workspace: {}\n", status.workspace.display()));
+    out.push_str(&format!("configured: {}\n", status.configured));
+    out.push_str(&format!(
+        "servable: {} - {}\n",
+        status.servable, status.detail
+    ));
+    out.push_str(&format!("addr: {}\n", status.addr));
+    if let Some(base_url) = &status.base_url {
+        out.push_str(&format!("base URL: {base_url}\n"));
+    }
+    if let Some(health_url) = &status.health_url {
+        out.push_str(&format!("health: {health_url}\n"));
+    }
+    if let Some(agents_url) = &status.agents_url {
+        out.push_str(&format!("agents: {agents_url}\n"));
+    }
+    out.push_str("capabilities: serve, dev reload, agent manifest, JSON invoke, SSE events\n");
+    out.push_str("commands:\n");
+    out.push_str(&format!("  start: {}\n", status.start_command));
+    out.push_str(&format!("  serve: {}\n", status.serve_command));
+    out.push_str(&format!("  dev: {}\n", status.dev_command));
+    out.push_str(&format!("  status: {}\n", status.status_command));
+    out
+}
+
+fn format_hosting_status_json(
+    status: &HostingStatus,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let value = serde_json::json!({
+        "workspace": status.workspace.display().to_string(),
+        "configured": status.configured,
+        "servable": status.servable,
+        "detail": status.detail,
+        "addr": status.addr,
+        "baseUrl": status.base_url,
+        "healthUrl": status.health_url,
+        "agentsUrl": status.agents_url,
+        "capabilities": {
+            "serve": true,
+            "devReload": true,
+            "health": true,
+            "agentsManifest": true,
+            "jsonInvoke": true,
+            "sse": true,
+            "localOnly": true,
+            "deployment": false,
+        },
+        "commands": {
+            "start": status.start_command,
+            "serve": status.serve_command,
+            "dev": status.dev_command,
+            "status": status.status_command,
+        },
+    });
+    Ok(format!("{}\n", serde_json::to_string_pretty(&value)?))
+}
+
+fn dashboard_hosting_json(workspace: &Path) -> serde_json::Value {
+    let status = hosting_status(workspace);
+    serde_json::json!({
+        "configured": status.configured,
+        "servable": status.servable,
+        "detail": status.detail,
+        "addr": status.addr,
+        "baseUrl": status.base_url,
+        "healthUrl": status.health_url,
+        "agentsUrl": status.agents_url,
+        "commands": {
+            "start": status.start_command,
+            "serve": status.serve_command,
+            "dev": status.dev_command,
+            "status": status.status_command,
+        },
+    })
 }
 
 #[derive(Debug)]
@@ -5856,6 +6178,24 @@ fn format_dashboard_report(
         out.push_str("  - none\n");
     }
 
+    let hosting = hosting_status(workspace);
+    out.push('\n');
+    out.push_str("Local hosting\n");
+    out.push_str(&format!("  - addr: {}\n", hosting.addr));
+    if let Some(base_url) = &hosting.base_url {
+        out.push_str(&format!("  - base URL: {base_url}\n"));
+    }
+    if let Some(health_url) = &hosting.health_url {
+        out.push_str(&format!("  - health: {health_url}\n"));
+    }
+    out.push_str(&format!(
+        "  - status: {} - {}\n",
+        if hosting.servable { "ready" } else { "blocked" },
+        hosting.detail
+    ));
+    out.push_str(&format!("  - start: {}\n", hosting.start_command));
+    out.push_str(&format!("  - status command: {}\n", hosting.status_command));
+
     let config = load_sandbox_config(workspace);
     let smoke = run_sandbox_smoke(workspace, &config);
     out.push('\n');
@@ -5911,6 +6251,7 @@ fn format_dashboard_json(
         "templates": dashboard_template_json_entries(workspace)?,
         "templateBriefs": dashboard_template_brief_json_entries(workspace)?,
         "latestCodingRun": latest_coding_run_json(workspace),
+        "localHosting": dashboard_hosting_json(workspace),
         "sandbox": dashboard_sandbox_json(workspace),
         "recentSandboxLogs": recent_sandbox_logs(workspace, 5),
         "nextCommands": dashboard_next_commands(workspace),
@@ -6143,6 +6484,10 @@ fn dashboard_next_commands(workspace: &Path) -> Vec<String> {
             workspace.display()
         ),
         format!(
+            "agentic-harness hosting status --workspace {}",
+            workspace.display()
+        ),
+        format!(
             "agentic-harness doctor --workspace {} --plain",
             workspace.display()
         ),
@@ -6295,6 +6640,10 @@ enum WizardAction {
     RunHello,
     RunCustom,
     RunWithEnv,
+    SetupHosting,
+    HostingStatus,
+    HostCurrent,
+    HostCurrentDev,
     ResultCurrent,
     ResultCustom,
     DashboardCurrent,
@@ -6512,7 +6861,7 @@ static SANDBOX_CHOICES: [WizardChoice; 10] = [
     },
 ];
 
-static RUN_CHOICES: [WizardChoice; 3] = [
+static RUN_CHOICES: [WizardChoice; 7] = [
     WizardChoice {
         key: "1",
         title: "Run hello locally",
@@ -6533,6 +6882,34 @@ static RUN_CHOICES: [WizardChoice; 3] = [
         detail: "load model keys or sandbox credentials from .env",
         command: "prompts for agent, workspace, id, payload, and env files",
         action: Some(WizardAction::RunWithEnv),
+    },
+    WizardChoice {
+        key: "4",
+        title: "Configure local hosting",
+        detail: "save the loopback address for the native HTTP server",
+        command: "agentic-harness setup hosting --workspace . --addr 127.0.0.1:3583",
+        action: Some(WizardAction::SetupHosting),
+    },
+    WizardChoice {
+        key: "5",
+        title: "Hosting status",
+        detail: "show URLs, endpoints, and local server capabilities",
+        command: "agentic-harness hosting status --workspace .",
+        action: Some(WizardAction::HostingStatus),
+    },
+    WizardChoice {
+        key: "6",
+        title: "Start local host",
+        detail: "serve the native app over local HTTP",
+        command: "agentic-harness host --workspace .",
+        action: Some(WizardAction::HostCurrent),
+    },
+    WizardChoice {
+        key: "7",
+        title: "Start dev host",
+        detail: "serve locally with watch/reload",
+        command: "agentic-harness host --workspace . --dev",
+        action: Some(WizardAction::HostCurrentDev),
     },
 ];
 
@@ -6966,6 +7343,16 @@ fn run_wizard_action(
                 &env_files,
             )
         }
+        WizardAction::SetupHosting => {
+            let addr = prompt_default("Local host address", "127.0.0.1:3583")?;
+            setup_hosting_command(workspace, &addr)
+        }
+        WizardAction::HostingStatus => hosting_command(HostingCommands::Status {
+            workspace: workspace.to_path_buf(),
+            json: false,
+        }),
+        WizardAction::HostCurrent => host_command(workspace, None, false, &[]),
+        WizardAction::HostCurrentDev => host_command(workspace, None, true, &[]),
     }
 }
 
@@ -7111,6 +7498,20 @@ fn wizard_choice_command(choice: &WizardChoice, workspace: &Path) -> String {
         Some(WizardAction::SandboxLogs) => {
             format!("agentic-harness sandbox logs --workspace {workspace_arg}")
         }
+        Some(WizardAction::SetupHosting) => {
+            format!(
+                "agentic-harness setup hosting --workspace {workspace_arg} --addr 127.0.0.1:3583"
+            )
+        }
+        Some(WizardAction::HostingStatus) => {
+            format!("agentic-harness hosting status --workspace {workspace_arg}")
+        }
+        Some(WizardAction::HostCurrent) => {
+            format!("agentic-harness host --workspace {workspace_arg}")
+        }
+        Some(WizardAction::HostCurrentDev) => {
+            format!("agentic-harness host --workspace {workspace_arg} --dev")
+        }
         Some(WizardAction::ResultCurrent) => {
             format!("agentic-harness inspect --workspace {workspace_arg}")
         }
@@ -7127,6 +7528,7 @@ fn wizard_choice_command(choice: &WizardChoice, workspace: &Path) -> String {
 fn styled_wizard_dashboard(workspace: &Path) -> String {
     let targets = [
         ("Local checkout", "default Rust runtime target"),
+        ("Local hosting", "loopback HTTP server for agents"),
         ("Vercel Sandbox", "hosted coding sandbox through SessionEnv"),
         ("E2B", "cloud sandbox connector through SessionEnv"),
         ("Template packs", "reusable agent starting points"),
@@ -7172,6 +7574,7 @@ fn styled_wizard_dashboard(workspace: &Path) -> String {
 fn render_wizard_status_panel(workspace: &Path, color: bool) -> String {
     let report = doctor_report(workspace);
     let config = load_sandbox_config(workspace);
+    let hosting = hosting_status(workspace);
     let built_in_templates = BUILT_IN_TEMPLATES.len();
     let scoped_templates = [
         TemplateScope::Workspace,
@@ -7213,19 +7616,24 @@ fn render_wizard_status_panel(workspace: &Path, color: bool) -> String {
 {MUTED}│{RESET}  {WHITE}Workspace{RESET}: {MUTED}{}{RESET}\n\
 {MUTED}│{RESET}  {WHITE}Readiness{RESET}: {readiness}\n\
 {MUTED}│{RESET}  {WHITE}Sandbox{RESET}: {} {MUTED}(cwd {}){RESET}\n\
+{MUTED}│{RESET}  {WHITE}Local hosting{RESET}: {} {MUTED}{}{RESET}\n\
 {MUTED}│{RESET}  {WHITE}Templates{RESET}: {built_in_templates} built-in, {scoped_templates} installed\n\
 {MUTED}│{RESET}  {WHITE}Recent logs{RESET}: {logs}\n\
 {MUTED}│{RESET}  {WHITE}Next step{RESET}: {next}\n",
             report.workspace.display(),
             config.target,
-            config.cwd
+            config.cwd,
+            hosting.addr,
+            if hosting.servable { "ready" } else { "blocked" }
         )
     } else {
         format!(
-            "Status panel:\n  Workspace: {}\n  Readiness: {readiness}\n  Sandbox: {} (cwd {})\n  Templates: {built_in_templates} built-in, {scoped_templates} installed\n  Recent logs: {logs}\n  Next step: {next}\n",
+            "Status panel:\n  Workspace: {}\n  Readiness: {readiness}\n  Sandbox: {} (cwd {})\n  Local hosting: {} {}\n  Templates: {built_in_templates} built-in, {scoped_templates} installed\n  Recent logs: {logs}\n  Next step: {next}\n",
             report.workspace.display(),
             config.target,
-            config.cwd
+            config.cwd,
+            hosting.addr,
+            if hosting.servable { "ready" } else { "blocked" }
         )
     }
 }
@@ -7260,7 +7668,7 @@ fn render_wizard_step_panel(step: &WizardStep, workspace: &Path, color: bool) ->
         "2" => render_template_wizard_panel(workspace, color),
         "3" => render_llm_wizard_panel(workspace, color),
         "4" => render_sandbox_wizard_panel(workspace, color),
-        "5" => render_run_wizard_panel(color),
+        "5" => render_run_wizard_panel(workspace, color),
         "6" => render_check_wizard_panel(workspace, color),
         _ => String::new(),
     }
@@ -7417,20 +7825,29 @@ fn render_sandbox_wizard_panel(workspace: &Path, color: bool) -> String {
     }
 }
 
-fn render_run_wizard_panel(color: bool) -> String {
+fn render_run_wizard_panel(workspace: &Path, color: bool) -> String {
     let example = default_example_workspace();
     let example_display = example.display();
+    let hosting = hosting_status(workspace);
+    let workspace_arg = workspace.display();
 
     if color {
         format!(
             "{MUTED}│{RESET}  {BOLD}{ORANGE}Run panel{RESET}\n\
 {MUTED}│{RESET}  {WHITE}Example workspace{RESET}: {example_display}\n\
 {MUTED}│{RESET}  {WHITE}Manifest{RESET}: agentic-harness manifest --workspace {example_display}\n\
-{MUTED}│{RESET}  {WHITE}Payload check{RESET}: JSON is validated before run\n"
+{MUTED}│{RESET}  {WHITE}Payload check{RESET}: JSON is validated before run\n\
+{MUTED}│{RESET}  {WHITE}Local hosting{RESET}: {} {MUTED}{}{RESET}\n\
+{MUTED}│{RESET}  {WHITE}Host command{RESET}: agentic-harness host --workspace {workspace_arg}\n\
+{MUTED}│{RESET}  {WHITE}Host status{RESET}: agentic-harness hosting status --workspace {workspace_arg}\n",
+            hosting.addr,
+            if hosting.servable { "ready" } else { "blocked" }
         )
     } else {
         format!(
-            "Run panel:\n  Example workspace: {example_display}\n  Manifest: agentic-harness manifest --workspace {example_display}\n  Payload check: JSON is validated before run\n"
+            "Run panel:\n  Example workspace: {example_display}\n  Manifest: agentic-harness manifest --workspace {example_display}\n  Payload check: JSON is validated before run\n  Local hosting: {} {}\n  Host command: agentic-harness host --workspace {workspace_arg}\n  Host status: agentic-harness hosting status --workspace {workspace_arg}\n",
+            hosting.addr,
+            if hosting.servable { "ready" } else { "blocked" }
         )
     }
 }
@@ -7679,6 +8096,10 @@ Workflows:
      1. Run hello locally: agentic-harness run hello --workspace examples/hello-world --id demo --payload '{"name":"Ada"}'
      2. Run from your checkout: prompts for agent, workspace, id, and JSON payload
      3. Run with environment files: prompts for agent, workspace, id, payload, and env files
+     4. Configure local hosting: agentic-harness setup hosting --workspace . --addr 127.0.0.1:3583
+     5. Hosting status: agentic-harness hosting status --workspace .
+     6. Start local host: agentic-harness host --workspace .
+     7. Start dev host: agentic-harness host --workspace . --dev
   6. Check setup: validate required files before running
      1. Inspect latest result: agentic-harness inspect --workspace .
      2. Inspect another workspace result: prompts for workspace path
@@ -7706,12 +8127,17 @@ Common commands:
   agentic-harness sandbox sync ./seed workspace-seed
   agentic-harness sandbox logs
   agentic-harness sandbox rm workspace-seed --recursive
+  agentic-harness setup hosting --workspace . --addr 127.0.0.1:3583
+  agentic-harness hosting status --workspace .
+  agentic-harness host --workspace .
+  agentic-harness host --workspace . --dev
   agentic-harness dashboard --workspace .
   agentic-harness doctor --workspace .
   agentic-harness run hello --workspace examples/hello-world --id demo --payload '{"name":"Ada"}'
 
 Targets:
   - Local checkout: default Rust runtime target
+  - Local hosting: loopback HTTP server for agents
   - Vercel Sandbox: hosted coding sandbox target through SessionEnv
   - E2B: cloud sandbox target through SessionEnv
   - Template packs: reusable agent starting points
@@ -7740,6 +8166,22 @@ Targets:
         .replace(
             "Sandbox logs: agentic-harness sandbox logs",
             &format!("Sandbox logs: agentic-harness sandbox logs --workspace {workspace_arg}"),
+        )
+        .replace(
+            "Configure local hosting: agentic-harness setup hosting --workspace . --addr 127.0.0.1:3583",
+            &format!("Configure local hosting: agentic-harness setup hosting --workspace {workspace_arg} --addr 127.0.0.1:3583"),
+        )
+        .replace(
+            "Hosting status: agentic-harness hosting status --workspace .",
+            &format!("Hosting status: agentic-harness hosting status --workspace {workspace_arg}"),
+        )
+        .replace(
+            "Start local host: agentic-harness host --workspace .",
+            &format!("Start local host: agentic-harness host --workspace {workspace_arg}"),
+        )
+        .replace(
+            "Start dev host: agentic-harness host --workspace . --dev",
+            &format!("Start dev host: agentic-harness host --workspace {workspace_arg} --dev"),
         )
         .replace(
             "Inspect latest result: agentic-harness inspect --workspace .",

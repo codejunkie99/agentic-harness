@@ -1826,6 +1826,101 @@ fn setup_sandbox_local_updates_doctor_and_remote_prints_instructions() {
 }
 
 #[test]
+fn local_hosting_setup_status_and_dashboard_json_expose_urls() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("hosted-agent");
+
+    let scaffold = Command::new(agentic_harness_bin())
+        .args(["new", project.to_str().unwrap(), "--name", "hosted-agent"])
+        .output()
+        .unwrap();
+    assert!(
+        scaffold.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&scaffold.stderr)
+    );
+
+    let setup = Command::new(agentic_harness_bin())
+        .args([
+            "setup",
+            "hosting",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--addr",
+            "127.0.0.1:4777",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        setup.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&setup.stderr)
+    );
+    let config = fs::read_to_string(project.join(".agentic-harness/hosting.toml")).unwrap();
+    assert!(config.contains("addr = \"127.0.0.1:4777\""));
+
+    let status = Command::new(agentic_harness_bin())
+        .args([
+            "hosting",
+            "status",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        status.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status_json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
+    assert_eq!(status_json["configured"], true);
+    assert_eq!(status_json["addr"], "127.0.0.1:4777");
+    assert_eq!(status_json["baseUrl"], "http://127.0.0.1:4777");
+    assert_eq!(status_json["healthUrl"], "http://127.0.0.1:4777/health");
+    assert_eq!(status_json["agentsUrl"], "http://127.0.0.1:4777/agents");
+    assert_eq!(status_json["capabilities"]["serve"], true);
+    assert_eq!(status_json["capabilities"]["devReload"], true);
+    assert_eq!(status_json["capabilities"]["sse"], true);
+    assert!(status_json["commands"]["start"]
+        .as_str()
+        .unwrap()
+        .contains("agentic-harness host --workspace"));
+
+    let dashboard = Command::new(agentic_harness_bin())
+        .args([
+            "dashboard",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        dashboard.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&dashboard.stderr)
+    );
+    let dashboard_json: serde_json::Value = serde_json::from_slice(&dashboard.stdout).unwrap();
+    assert_eq!(dashboard_json["localHosting"]["addr"], "127.0.0.1:4777");
+    assert_eq!(
+        dashboard_json["localHosting"]["baseUrl"],
+        "http://127.0.0.1:4777"
+    );
+
+    let tui = Command::new(agentic_harness_bin())
+        .args(["tui", "--workspace", project.to_str().unwrap(), "--plain"])
+        .output()
+        .unwrap();
+    assert!(tui.status.success());
+    let tui_body = String::from_utf8_lossy(&tui.stdout);
+    assert!(tui_body.contains("Local hosting"));
+    assert!(tui_body.contains("agentic-harness host --workspace"));
+    assert!(tui_body.contains("agentic-harness hosting status --workspace"));
+}
+
+#[test]
 fn sandbox_local_exec_read_write_and_list_work_from_cli() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("sandbox-ops");

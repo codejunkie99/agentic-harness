@@ -1,13 +1,14 @@
 # Agentic Harness Immediate Goals
 
-Status: implemented for the local CLI slice
+Status: implemented for the local CLI slice, with local hosting now in scope
 
 This document defines the next product slice for Agentic Harness. The immediate
-focus is local and sandboxed coding-agent creation, not deployment.
+focus is local and sandboxed coding-agent creation plus loopback local hosting,
+not deployment.
 
 ## Non-Goals For This Slice
 
-- No hosting workflow.
+- No external hosting workflow.
 - No deployment wizard.
 - No production release automation.
 - No Cloudflare, InsForge, or other deploy target work.
@@ -72,6 +73,31 @@ Acceptance criteria:
 - Remote sandbox setup can store an endpoint and run `sandbox exec`, `read`,
   `write`, `ls`, and `rm` through the HTTP SessionEnv protocol.
 - No deployment target is configured as part of this flow.
+
+## Immediate Goal 1A: Local Hosting
+
+Agentic Harness needs a local-only hosting path so users and software agents can
+run native Rust agents over HTTP without choosing a deployment provider.
+
+The first version should support:
+
+- loopback-only address configuration in `.agentic-harness/hosting.toml`,
+- a short `agentic-harness host --workspace <path>` start command,
+- a `--dev` mode that reuses the watch/reload development server,
+- structured `agentic-harness hosting status --json` output,
+- dashboard and TUI panels that show the local base URL and next commands,
+- explicit separation from InsForge, Cloudflare, or other external hosting.
+
+Acceptance criteria:
+
+- `agentic-harness setup hosting --workspace . --addr 127.0.0.1:3583` writes
+  local hosting config.
+- `agentic-harness hosting status --workspace . --json` exposes `baseUrl`,
+  `healthUrl`, `agentsUrl`, and capabilities for serve, dev reload, JSON invoke,
+  and SSE.
+- `agentic-harness dashboard --json` includes `localHosting`.
+- `agentic-harness tui --plain` shows local hosting commands.
+- Local hosting remains loopback-only and does not configure deployment.
 
 ## Immediate Goal 2: Better TUI
 

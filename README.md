@@ -280,6 +280,10 @@ agentic-harness template install <path> [--workspace <path>] [--scope workspace|
 agentic-harness template import <path> [--workspace <path>] [--scope workspace|user|team] [--name <name>]
 agentic-harness setup llm [--workspace <path>] [--env claude-code|codex|cursor|wind-server|auto] [--print]
 agentic-harness setup sandbox [--workspace <path>] [--target local|vercel|daytona|e2b|custom] [--endpoint <url>] [--print]
+agentic-harness setup hosting [--workspace <path>] [--addr 127.0.0.1:3583]
+agentic-harness hosting status [--workspace <path>] [--json]
+agentic-harness hosting start [--workspace <path>] [--addr 127.0.0.1:3583] [--dev] [--env .env]
+agentic-harness host [--workspace <path>] [--addr 127.0.0.1:3583] [--dev] [--env .env]
 agentic-harness sandbox status [--workspace <path>] [--json]
 agentic-harness sandbox exec <command> [--workspace <path>] [--json]
 agentic-harness sandbox read <path> [--workspace <path>]
@@ -466,6 +470,14 @@ sandbox sync, operation logs, and cleanup. Remote targets intentionally route
 through generated `SessionEnv` connector instructions until a project wires its
 provider-specific connector or configures an HTTP endpoint.
 
+`agentic-harness setup hosting` configures local HTTP hosting only. It writes
+`.agentic-harness/hosting.toml` with a loopback address, then `agentic-harness
+hosting status --json` exposes the base URL, `/health`, `/agents`, JSON invoke,
+SSE event, serve, and dev-reload capabilities for the dashboard and software
+agents. `agentic-harness host --workspace .` starts the native local server from
+that config; add `--dev` for watch/reload. This is not a deployment path and it
+does not configure InsForge, Cloudflare, or any external provider.
+
 `agentic-harness doctor` checks the workspace before the user or a software
 agent tries to run it. It validates `Cargo.toml`, `src/main.rs`, `AGENTS.md`,
 roles, skills, sandbox readiness, LLM template-authoring setup, and whether
@@ -512,6 +524,11 @@ Distribution artifacts live in:
 `agentic-harness dev` starts the native HTTP server and watches the workspace for
 changes. Source/config changes restart the child server; generated directories
 such as `target`, `dist`, `.git`, and `node_modules` are ignored.
+
+`agentic-harness host` is the shorter local-hosting start command. It reads
+`.agentic-harness/hosting.toml` by default and delegates to the same native
+server path as `serve`; `--dev` delegates to the same watch/reload path as
+`dev`.
 
 `agentic-harness build` with `--target native` or `--target node` produces:
 

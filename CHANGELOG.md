@@ -49,6 +49,11 @@
 - Dashboard sandbox status now runs the configured sandbox smoke check, so
   remote HTTP SessionEnv endpoints report remote readiness instead of local
   checkout readiness.
+- Local hosting is now a first-class local-only capability:
+  `setup hosting` writes `.agentic-harness/hosting.toml`, `hosting status
+  --json` exposes loopback URLs and native HTTP capabilities, `host` starts the
+  configured server, and the dashboard/TUI show the local hosting path without
+  introducing a deployment workflow.
 - TUI-style wizard for coding, templates, LLM authoring setup, sandbox setup,
   running agents, and doctor checks, with `tui` and `ui` aliases for the common
   entrypoint. Second-level screens show contextual panels for LLM availability,
