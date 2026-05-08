@@ -1,12 +1,10 @@
 # Agentic Harness
 
-Agentic Harness is **the Rust agent harness framework.** If you know how to use Claude Code (or Codex, Cursor, Wind Server, etc)... then you already know the basics of how to build agents with Agentic Harness.
+**The Rust agent harness.** Build agents that read a repo, plan, edit files, run tests, and report back — then ship the same binary to your laptop, CI, a remote Linux sandbox, or the edge.
 
-Agentic Harness is a Rust framework for building the next generation of software agents, designed around a built-in **agent harness**. Agents are plain Rust binaries. The SDK, CLI, runtime, HTTP dispatch, sessions, workspace context, tools, and examples are all implemented in Rust.
+If you've used Claude Code, Codex, or Cursor, you already know how this feels: an agent loop with sessions, tools, skills, and a workspace it can act on. The difference is that it's headless, programmable, and yours. Agents are plain Rust binaries; their behavior — `AGENTS.md`, roles, and skills — lives in Markdown, so you change what an agent does without touching the build.
 
-It feels like using Claude Code. The agents you build act autonomously to inspect repositories, plan, edit files, run checks, and report back. They require very little code to run — most of the "logic" lives in Markdown: `AGENTS.md`, roles, and skills.
-
-Agentic Harness isn't another AI SDK. It's a proper runtime-agnostic framework — write once, build, and deploy your agents anywhere (local development, CI, remote Linux sandboxes like Vercel Sandbox, Daytona, or E2B, and Cloudflare Workers for edge control planes).
+Native Rust end to end: SDK, CLI, runtime, HTTP dispatch, sessions, tools, workspace context. One toolchain, one self-contained binary, no JavaScript anywhere. Runs locally on a checkout or in CI, talks to remote Linux sandboxes (Vercel Sandbox, Daytona, E2B) over a small HTTP protocol, and emits a Cloudflare Workers boundary for edge control planes.
 
 <p align="center">
   <img src="./assets/architecture.svg" alt="Agentic Harness architecture: a Rust agent compiled against the SDK, driven by the CLI and HTTP runtime, runnable on local checkouts, CI, remote sandboxes (Vercel/Daytona/E2B), or Cloudflare edge." width="880">
