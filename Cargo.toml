@@ -2,6 +2,7 @@
 members = [
 	"crates/agentic-harness",
 	"crates/agentic-harness-cli",
+	"crates/agentic-harness-score",
 	"examples/hello-world",
 ]
 resolver = "2"
