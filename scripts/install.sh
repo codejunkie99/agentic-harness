@@ -13,16 +13,16 @@ fi
 mkdir -p "$BIN_DIR"
 
 if [[ "${AGENTIC_HARNESS_FROM_GIT:-0}" == "1" ]]; then
-  REPO="${AGENTIC_HARNESS_REPO:-https://github.com/agentic-harness/agentic-harness.git}"
-  REF="${AGENTIC_HARNESS_REF:-v0.1.0}"
+  REPO="${AGENTIC_HARNESS_REPO:-https://github.com/codejunkie99/agentic-harness.git}"
+  REF="${AGENTIC_HARNESS_REF:-v0.1.1}"
   cargo install --git "$REPO" --tag "$REF" agentic-harness-cli --root "$PREFIX" --locked --force
 else
   cargo install --path "$ROOT/crates/agentic-harness-cli" --root "$PREFIX" --locked --force
 fi
 
-"$BIN_DIR/agentic-harness" --version
+echo "installed $("$BIN_DIR/agentic-harness" --version)"
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
-  *) echo "add this to PATH: $BIN_DIR" ;;
+  *) echo "add this to PATH: export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac

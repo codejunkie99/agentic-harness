@@ -12,6 +12,10 @@ fn agentic_harness_bin() -> &'static str {
     env!("CARGO_BIN_EXE_agentic-harness")
 }
 
+fn release_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 fn collect_previous_name_offenders(
     repo_root: &Path,
     path: &Path,
@@ -6008,7 +6012,7 @@ fn release_packaging_artifacts_are_locally_smoke_testable() {
     );
     assert_eq!(
         String::from_utf8_lossy(&version.stdout).trim(),
-        "agentic-harness 0.1.0"
+        format!("agentic-harness {}", release_version())
     );
 
     let install_script = root.join("scripts/install.sh");
@@ -6061,7 +6065,7 @@ fn release_packaging_artifacts_are_locally_smoke_testable() {
     );
 
     let changelog_body = fs::read_to_string(&changelog).unwrap();
-    assert!(changelog_body.contains("## 0.1.0"));
+    assert!(changelog_body.contains(&format!("## {}", release_version())));
     assert!(changelog_body.contains("Native Rust"));
 
     let smoke_body = fs::read_to_string(&smoke_doc).unwrap();
@@ -6105,7 +6109,7 @@ fn release_check_reports_packaging_readiness_as_text_and_json() {
     );
     let body: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(body["ok"], true);
-    assert_eq!(body["version"], "0.1.0");
+    assert_eq!(body["version"], release_version());
     assert_eq!(body["checks"]["installScript"]["ok"], true);
     assert_eq!(body["checks"]["homebrewFormula"]["ok"], true);
     assert_eq!(body["checks"]["changelog"]["ok"], true);
@@ -6192,11 +6196,12 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
     );
     let body = String::from_utf8_lossy(&text.stdout);
     assert!(body.contains("Agentic Harness Package"));
-    assert!(body.contains("version: 0.1.0"));
+    assert!(body.contains(&format!("version: {}", release_version())));
     assert!(body.contains("sha256:"));
 
     let package_dir = output_dir.join(format!(
-        "agentic-harness-v0.1.0-{}-{}",
+        "agentic-harness-v{}-{}-{}",
+        release_version(),
         std::env::consts::OS,
         std::env::consts::ARCH
     ));
@@ -6204,7 +6209,8 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
     let manifest = package_dir.join("manifest.json");
     let checksums = package_dir.join("SHA256SUMS");
     let archive = output_dir.join(format!(
-        "agentic-harness-v0.1.0-{}-{}.tar",
+        "agentic-harness-v{}-{}-{}.tar",
+        release_version(),
         std::env::consts::OS,
         std::env::consts::ARCH
     ));
@@ -6220,14 +6226,15 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
     let manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(manifest).unwrap()).unwrap();
     assert_eq!(manifest["name"], "agentic-harness");
-    assert_eq!(manifest["version"], "0.1.0");
+    assert_eq!(manifest["version"], release_version());
     assert_eq!(manifest["platform"]["os"], std::env::consts::OS);
     assert_eq!(manifest["platform"]["arch"], std::env::consts::ARCH);
     assert_eq!(manifest["binary"], "agentic-harness");
     assert_eq!(
         manifest["archive"],
         format!(
-            "agentic-harness-v0.1.0-{}-{}.tar",
+            "agentic-harness-v{}-{}-{}.tar",
+            release_version(),
             std::env::consts::OS,
             std::env::consts::ARCH
         )
@@ -6249,7 +6256,8 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
         .collect::<Vec<_>>();
     assert!(archive_names.contains(
         &format!(
-            "agentic-harness-v0.1.0-{}-{}/agentic-harness",
+            "agentic-harness-v{}-{}-{}/agentic-harness",
+            release_version(),
             std::env::consts::OS,
             std::env::consts::ARCH
         )
@@ -6259,7 +6267,8 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
         .iter()
         .find(|(name, _)| {
             name == &format!(
-                "agentic-harness-v0.1.0-{}-{}/manifest.json",
+                "agentic-harness-v{}-{}-{}/manifest.json",
+                release_version(),
                 std::env::consts::OS,
                 std::env::consts::ARCH
             )
@@ -6267,7 +6276,7 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
         .expect("archive missing manifest.json");
     let archived_manifest: serde_json::Value =
         serde_json::from_slice(&archived_manifest.1).unwrap();
-    assert_eq!(archived_manifest["version"], "0.1.0");
+    assert_eq!(archived_manifest["version"], release_version());
     assert_eq!(archived_manifest["binary"], "agentic-harness");
     assert_eq!(archived_manifest["sha256"], manifest["sha256"]);
 
@@ -6287,7 +6296,7 @@ fn package_command_creates_binary_distribution_manifest_and_checksums() {
     );
     let body: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(body["ok"], true);
-    assert_eq!(body["artifact"]["version"], "0.1.0");
+    assert_eq!(body["artifact"]["version"], release_version());
     assert_eq!(body["artifact"]["sha256"].as_str().unwrap().len(), 64);
     assert_eq!(
         body["artifact"]["archiveSha256"].as_str().unwrap().len(),
@@ -6327,7 +6336,7 @@ fn smoke_command_reports_install_readiness_as_text_and_json() {
     );
     let body = String::from_utf8_lossy(&text.stdout);
     assert!(body.contains("Agentic Harness Smoke"));
-    assert!(body.contains("version: agentic-harness 0.1.0"));
+    assert!(body.contains(&format!("version: agentic-harness {}", release_version())));
     assert!(body.contains("wizard: ok"));
     assert!(body.contains("doctor: ok"));
     assert!(body.contains("sandbox: ok"));
@@ -6343,7 +6352,10 @@ fn smoke_command_reports_install_readiness_as_text_and_json() {
     );
     let body: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(body["ok"], true);
-    assert_eq!(body["version"], "agentic-harness 0.1.0");
+    assert_eq!(
+        body["version"],
+        format!("agentic-harness {}", release_version())
+    );
     assert_eq!(
         body["workspace"],
         project.canonicalize().unwrap().display().to_string()

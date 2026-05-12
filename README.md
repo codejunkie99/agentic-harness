@@ -52,16 +52,43 @@ Pick the path that matches what you are trying to do:
 
 ## Install
 
+Agentic Harness installs a single CLI binary named `agentic-harness`. Rust and
+Cargo are required for source, tarball, and Homebrew builds.
+
+### Tagged Release Tarball
+
 ```bash
-git clone https://github.com/codejunkie99/agentic-harness
+curl -L -o agentic-harness-v0.1.1.tar.gz \
+  https://github.com/codejunkie99/agentic-harness/archive/refs/tags/v0.1.1.tar.gz
+tar -xzf agentic-harness-v0.1.1.tar.gz
+cd agentic-harness-0.1.1
+./scripts/install.sh
+export PATH="$HOME/.agentic-harness/bin:$PATH"
+agentic-harness --version
+```
+
+### Source Checkout
+
+```bash
+git clone https://github.com/codejunkie99/agentic-harness.git
 cd agentic-harness
 ./scripts/install.sh
 export PATH="$HOME/.agentic-harness/bin:$PATH"
 agentic-harness --version
 ```
 
-Homebrew HEAD installs are also available via
-[`Formula/agentic-harness.rb`](Formula/agentic-harness.rb).
+Set `AGENTIC_HARNESS_PREFIX` to install somewhere other than
+`$HOME/.agentic-harness`.
+
+### Homebrew
+
+```bash
+brew install --HEAD ./Formula/agentic-harness.rb
+agentic-harness --version
+```
+
+The stable Homebrew formula is updated on `main` after each release tag because
+it needs the GitHub tarball SHA.
 
 ## Common Commands
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Clarified installation instructions for release tarballs, source checkouts,
+  local PATH setup, and Homebrew installs.
+- Updated release-facing install defaults to the
+  `codejunkie99/agentic-harness` repository and the `v0.1.1` tag.
+- Prepared the Homebrew formula metadata for stable tarball-based installs.
+
 ## 0.1.0
 
 - Native Rust SDK and CLI for defining agents, loading workspace context,
