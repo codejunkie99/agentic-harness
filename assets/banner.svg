@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 200" width="960" height="200">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#21262d" stroke-width="0.8"/>
+    </pattern>
+    <linearGradient id="stripe" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#e05d00" stop-opacity="0"/>
+      <stop offset="25%"  stop-color="#e05d00"/>
+      <stop offset="65%"  stop-color="#f5a623"/>
+      <stop offset="100%" stop-color="#e05d00" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="title-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#e0e6f0"/>
+      <stop offset="50%"  stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e0e6f0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="200" fill="url(#bg)"/>
+  <rect width="960" height="200" fill="url(#grid)" opacity="0.45"/>
+
+  <!-- Top + bottom accent stripes -->
+  <rect x="0" y="0"   width="960" height="3" fill="url(#stripe)"/>
+  <rect x="0" y="197" width="960" height="3" fill="url(#stripe)"/>
+
+  <!-- Corner bracket: top-left -->
+  <path d="M8,36 L8,8 L36,8"   fill="none" stroke="#e05d00" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+  <!-- Corner bracket: top-right -->
+  <path d="M924,8 L952,8 L952,36"  fill="none" stroke="#e05d00" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+  <!-- Corner bracket: bottom-left -->
+  <path d="M8,164 L8,192 L36,192"  fill="none" stroke="#e05d00" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+  <!-- Corner bracket: bottom-right -->
+  <path d="M924,192 L952,192 L952,164" fill="none" stroke="#e05d00" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Corner dots -->
+  <circle cx="8"   cy="8"   r="3" fill="#e05d00" opacity="0.6"/>
+  <circle cx="952" cy="8"   r="3" fill="#e05d00" opacity="0.6"/>
+  <circle cx="8"   cy="192" r="3" fill="#e05d00" opacity="0.6"/>
+  <circle cx="952" cy="192" r="3" fill="#e05d00" opacity="0.6"/>
+
+  <!-- Title -->
+  <text x="480" y="82"
+    text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="52" font-weight="700" letter-spacing="-1.5"
+    fill="url(#title-grad)">agentic-harness</text>
+
+  <!-- Divider under title -->
+  <line x1="288" y1="96" x2="672" y2="96" stroke="url(#stripe)" stroke-width="1.5"/>
+
+  <!-- Tagline -->
+  <text x="480" y="122"
+    text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    font-size="15" fill="#8b949e" letter-spacing="0.3">
+    Rust-native agent runtime · SDK · CLI
+  </text>
+
+  <!-- Execution-target pills — total width 302 px, centered at 480 → start at 329 -->
+  <!-- Local: 329..403 -->
+  <rect x="329" y="148" width="74" height="26" rx="13"
+    fill="#0d1117" stroke="#238636" stroke-width="1.3"/>
+  <text x="366" y="165.5" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" fill="#7ee787">Local</text>
+
+  <!-- CI: 415..463 -->
+  <rect x="415" y="148" width="48" height="26" rx="13"
+    fill="#0d1117" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="439" y="165.5" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" fill="#79c0ff">CI</text>
+
+  <!-- Sandbox: 475..559 -->
+  <rect x="475" y="148" width="84" height="26" rx="13"
+    fill="#0d1117" stroke="#6e40c9" stroke-width="1.3"/>
+  <text x="517" y="165.5" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" fill="#d2a8ff">Sandbox</text>
+
+  <!-- Edge: 571..631 -->
+  <rect x="571" y="148" width="60" height="26" rx="13"
+    fill="#0d1117" stroke="#9e5b00" stroke-width="1.3"/>
+  <text x="601" y="165.5" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" fill="#ffa657">Edge</text>
+</svg>

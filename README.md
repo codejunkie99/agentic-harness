@@ -1,61 +1,47 @@
-# Agentic Harness
+<div align="center">
+  <img src="./assets/banner.svg" alt="agentic-harness" width="100%">
+</div>
 
-**The Rust agent harness.** Build agents that read a repo, plan, edit files, run
-tests, and report back — then ship the same binary to your laptop, CI, a remote
-Linux sandbox, or the edge.
+<br>
 
-If you've used Claude Code, Codex, or Cursor, you already know how this feels:
-an agent loop with sessions, tools, skills, and a workspace it can act on. The
-difference is that it's headless, programmable, and yours. Agents are plain Rust
-binaries; their behavior — `AGENTS.md`, roles, and skills — lives in Markdown,
-so you change what an agent does without touching the build.
+<div align="center">
 
-Native Rust end to end: SDK, CLI, runtime, HTTP dispatch, sessions, tools,
-workspace context. One toolchain, one self-contained binary, no JavaScript
-anywhere. Runs locally on a checkout or in CI, talks to remote Linux sandboxes
-(Vercel Sandbox, Daytona, E2B) over a small HTTP protocol, and emits a
-Cloudflare Workers boundary for edge control planes.
+[![License](https://img.shields.io/github/license/codejunkie99/agentic-harness?style=flat-square&color=e05d00)](LICENSE)
+[![Rust 2021](https://img.shields.io/badge/rust-2021_edition-e05d00?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![v0.1.1](https://img.shields.io/badge/version-v0.1.1-e05d00?style=flat-square&logo=github)](https://github.com/codejunkie99/agentic-harness/releases)
+[![docs](https://img.shields.io/badge/docs-docs%2F-8b949e?style=flat-square&logo=readthedocs&logoColor=white)](docs/)
 
-![Agentic Harness architecture](./assets/architecture.svg)
+</div>
 
-> 📚 **Documentation lives in [`docs/`](docs/).** Architecture, execution
-> targets, runtime config, HTTP SessionEnv protocol, Cloudflare runtime,
-> deployment guides, feature status, and release notes — all there.
+<p align="center">
+  Build agents that read a repo, plan, edit files, run tests, and report back —<br>
+  then ship the <em>same binary</em> to your laptop, CI, a remote Linux sandbox, or the edge.<br>
+  <sub>Native Rust end to end. No JavaScript anywhere.</sub>
+</p>
 
-## Start Here
+<br>
 
-Pick the path that matches what you are trying to do:
+---
 
-- **Use the tool on a repo:** run `agentic-harness guide`, then
-  `agentic-harness code --workspace . --llm auto`.
-- **Create a Rust agent project:** run
-  `agentic-harness new ./my-agent --template coding`, then
-  `agentic-harness dev --workspace ./my-agent`.
-- **Serve an existing agent:** run `agentic-harness setup hosting --workspace .`
-  once, then `agentic-harness host --workspace .`.
-- **Ship to a host:** use `agentic-harness build --target native` for a native
-  binary, `--target node` for Node platforms, or `--target cloudflare` for the
-  Worker boundary artifacts described in
-  [`docs/cloudflare-runtime.md`](docs/cloudflare-runtime.md).
-- **Embed the SDK:** use `AgentApp`, `AgentDefinition`, `AgentContext`, and
-  `run_cli` from `agentic_harness::prelude::*`.
+## Architecture
 
-## Workspace
+<div align="center">
+  <img src="./assets/architecture.svg"
+    alt="Three-layer architecture: Your Rust Code → Harness (SDK · CLI · HTTP · Sessions) → Execution Targets"
+    width="100%">
+</div>
 
-- [`crates/agentic-harness`](crates/agentic-harness): Rust SDK for the agent
-  registry, context, sessions, roles, skills, tools, and HTTP serving.
-- [`crates/agentic-harness-cli`](crates/agentic-harness-cli): Rust CLI for
-  `wizard`, `code`, `new`, `template`, `setup`, `doctor`, `build`, `dev`, `run`,
-  `serve`, `manifest`, and `add`.
-- [`examples/hello-world`](examples/hello-world): Native Rust example agent
-  workspace.
+> Full docs live in [`docs/`](docs/). Architecture, execution targets, runtime config,
+> HTTP SessionEnv protocol, Cloudflare runtime, deployment guides, feature status, and
+> release notes — all there.
+
+---
 
 ## Install
 
-Agentic Harness installs a single CLI binary named `agentic-harness`. Rust and
-Cargo are required for source, tarball, and Homebrew builds.
-
-### Tagged Release Tarball
+<details open>
+<summary><b>Tarball &nbsp;·&nbsp; recommended</b></summary>
+<br>
 
 ```bash
 curl -L -o agentic-harness-v0.1.1.tar.gz \
@@ -67,7 +53,11 @@ export PATH="$HOME/.agentic-harness/bin:$PATH"
 agentic-harness --version
 ```
 
-### Source Checkout
+</details>
+
+<details>
+<summary><b>Source checkout</b></summary>
+<br>
 
 ```bash
 git clone https://github.com/codejunkie99/agentic-harness.git
@@ -77,101 +67,65 @@ export PATH="$HOME/.agentic-harness/bin:$PATH"
 agentic-harness --version
 ```
 
-Set `AGENTIC_HARNESS_PREFIX` to install somewhere other than
-`$HOME/.agentic-harness`.
+</details>
 
-### Homebrew
+<details>
+<summary><b>Homebrew</b></summary>
+<br>
 
 ```bash
-HOMEBREW_DEVELOPER=1 brew install --formula --build-from-source ./Formula/agentic-harness.rb
+HOMEBREW_DEVELOPER=1 brew install --formula --build-from-source \
+  ./Formula/agentic-harness.rb
 agentic-harness --version
 ```
 
-The formula is stored in this repo instead of a Homebrew tap, so local path
-installs need `HOMEBREW_DEVELOPER=1`. Use
-`HOMEBREW_DEVELOPER=1 brew install --formula --HEAD ./Formula/agentic-harness.rb`
-only when you explicitly want the latest `main` branch instead of the tagged
-release.
+> Use `--HEAD` only when you explicitly want the latest `main` instead of the tagged release.
 
-## Common Commands
+</details>
 
-```bash
-agentic-harness guide --workspace . --env codex
-agentic-harness doctor --workspace . --json
-agentic-harness dashboard --workspace . --plain
-agentic-harness code --workspace . --llm auto --prompt "Fix the failing tests"
-agentic-harness inspect --workspace .
-```
+Set `AGENTIC_HARNESS_PREFIX` to install somewhere other than `$HOME/.agentic-harness`.
 
-`doctor` checks readiness, `dashboard` summarizes the workspace, `code` runs the
-coding-agent loop, and `inspect` reads the latest coding-run summary.
+---
 
-## Examples
+## Quick Start
 
-### Quickstart
+| Goal | Command |
+|------|---------|
+| **Use the harness on a repo** | `agentic-harness guide`, then `agentic-harness code --workspace . --llm auto` |
+| **Create a new agent project** | `agentic-harness new ./my-agent --template coding` |
+| **Serve an existing agent** | `agentic-harness setup hosting --workspace .`, then `agentic-harness host --workspace .` |
+| **Build for deployment** | `agentic-harness build --target native\|node\|cloudflare` |
+| **Embed the SDK** | `use agentic_harness::prelude::*;` |
 
-The simplest agent — no sandbox config, no model wiring, just a typed payload
-and a JSON response. Run it as a CLI or serve it over HTTP.
+---
 
-```rust
-// src/main.rs
-use agentic_harness::prelude::*;
-use serde::Deserialize;
-use serde_json::json;
+## Core Concepts
 
-// Every agent has a trigger. This one is invoked as an HTTP webhook.
-#[derive(Deserialize)]
-struct HelloPayload {
-    name: Option<String>,
-}
+| Abstraction | Description |
+|-------------|-------------|
+| **`AgentApp`** | Root registry — wire handlers, load workspace context, spawn the runtime |
+| **`Session`** | Persistent conversation with a model, scoped to an agent invocation + ID |
+| **`Task`** | One-shot child session with fresh history; shares the workspace |
+| **`Role`** | Per-call system-prompt overlay, loaded from `.agentic-harness/roles/` |
+| **`Skill`** | Auto-discovered behavior descriptor in workspace Markdown |
+| **`SessionEnv`** | Execution environment: local, `HttpSessionEnv` (remote sandbox), or Workers |
+| **`ModelClient`** | Provider-neutral trait — swap backends without touching handlers |
+| **`Connector`** | Recipe for wiring a third-party sandbox, MCP server, or model gateway |
 
-fn app() -> Result<AgentApp, AgenticHarnessError> {
-    Ok(AgentApp::new()
-        .with_workspace(".")
-        .load_workspace_context()?
-        .agent(AgentDefinition::webhook("hello", |ctx: AgentContext| {
-            let payload: HelloPayload = ctx.payload()?;
-            let name = payload.name.unwrap_or_else(|| "World".to_string());
-            Ok(json!({
-                "id": ctx.id(),
-                "message": format!("Hello, {name}!"),
-            }))
-        })))
-}
+Agent identity is the URL path: `POST /agents/<name>/<id>` — reuse `<id>` to continue a
+session, use a new one to start fresh.
 
-fn main() {
-    let code = match app().and_then(run_cli) {
-        Ok(code) => code,
-        Err(err) => {
-            eprintln!("[agentic-harness] {err}");
-            1
-        }
-    };
-    std::process::exit(code);
-}
-```
+---
+
+## Coding Agent Loop
+
+<div align="center">
+  <img src="./assets/flow.svg"
+    alt="Coding agent loop: Inspect → Brief → LLM + Tools → Edit + Test → Commit · PR (with iterate arrow)"
+    width="100%">
+</div>
 
 ```bash
-agentic-harness new ./my-agent --template hello
-agentic-harness run hello --workspace ./my-agent --id demo \
-  --payload '{"name":"Ada"}'
-```
-
-Use `--template coding`, `code-review`, `test-fixer`, `docs-writer`,
-`repo-analyst`, or another built-in template when you want a fuller software
-agent starter instead of the minimal hello-world shape.
-
-### Coding Agent (Local Repo)
-
-The flagship workflow. `agentic-harness start` opens the guided TUI front door;
-`agentic-harness code` is the direct automation path. The coding loop inspects
-the repo, reads `AGENTS.md` / `CLAUDE.md`, captures git diff context, drafts a
-plan, hands the brief to your installed coding LLM, runs detected checks
-(`cargo test`, etc.), and optionally commits or opens a PR. No prompt? It
-defaults to a sensible "smallest safe step" brief.
-
-```bash
-# Detects whichever of claude / codex / cursor / wind-server you have
 agentic-harness code --workspace . --llm auto \
   --prompt "Add a flag to skip the network call in test mode" \
   --deny-path .env \
@@ -180,32 +134,56 @@ agentic-harness code --workspace . --llm auto \
   --pr
 ```
 
-The harness writes a run-scoped brief to
-`.agentic-harness/runs/<id>/coding-brief.md`, streams progress, captures the
-agent result, and saves both latest summaries and a durable bundle under
-`.agentic-harness/runs/<id>/` (`summary.md`, `run.json`, `events.jsonl`,
-`diff.patch`, `checks.json`, `agent-instructions.md`). Policy flags such as
-`--allow-path`, `--deny-path`, `--max-command-risk`, and
-`--approve-dependencies` gate code mutation before commit or PR handoff.
+Each run writes `.agentic-harness/runs/<id>/` — `coding-brief.md`, `summary.md`,
+`run.json`, `events.jsonl`, `diff.patch`, `checks.json`, `agent-instructions.md`.
 
-### Snapshot Repair (CI)
+---
 
-A CLI-only agent that runs in CI after `cargo test` produces failing
-`*.snap.new` files. It reads the diffs, decides which are safe to bless under a
-workspace policy (additive output, ordering changes, whitespace), applies the
-safe ones, and flags the rest for human review. No HTTP trigger.
+## Examples
+
+<details>
+<summary><b>Quickstart — minimal webhook agent</b></summary>
+<br>
 
 ```rust
-// src/main.rs
 use agentic_harness::prelude::*;
 use serde::Deserialize;
 use serde_json::json;
 
 #[derive(Deserialize)]
-struct Payload {
-    failing: Vec<String>, // paths to *.snap.new files
+struct HelloPayload { name: Option<String> }
+
+fn app() -> Result<AgentApp, AgenticHarnessError> {
+    Ok(AgentApp::new()
+        .with_workspace(".")
+        .load_workspace_context()?
+        .agent(AgentDefinition::webhook("hello", |ctx: AgentContext| {
+            let payload: HelloPayload = ctx.payload()?;
+            let name = payload.name.unwrap_or_else(|| "World".to_string());
+            Ok(json!({ "id": ctx.id(), "message": format!("Hello, {name}!") }))
+        })))
 }
 
+fn main() {
+    std::process::exit(app().and_then(run_cli).unwrap_or(1));
+}
+```
+
+```bash
+agentic-harness new ./my-agent --template hello
+agentic-harness run hello --workspace ./my-agent --id demo --payload '{"name":"Ada"}'
+```
+
+Use `--template coding`, `code-review`, `test-fixer`, `docs-writer`, `repo-analyst`,
+or another built-in template when you want a fuller software-agent starter.
+
+</details>
+
+<details>
+<summary><b>CI snapshot repair — bless safe snapshot diffs automatically</b></summary>
+<br>
+
+```rust
 fn app() -> Result<AgentApp, AgenticHarnessError> {
     Ok(AgentApp::new()
         .with_workspace(".")
@@ -214,8 +192,6 @@ fn app() -> Result<AgentApp, AgenticHarnessError> {
             let Payload { failing } = ctx.payload()?;
             let session = ctx.session_with_id(ctx.id());
 
-            // The "snapshot-reviewer" role lives in .agentic-harness/roles/.
-            // It tells the model what counts as a safe bless vs. a human-only call.
             let report = session.prompt_with_options(
                 format!(
                     "Review these failing snapshots and bless only the safe ones:\n\n{}",
@@ -227,123 +203,71 @@ fn app() -> Result<AgentApp, AgenticHarnessError> {
             Ok(json!({ "report": report.text() }))
         })))
 }
-
-fn main() { std::process::exit(app().and_then(run_cli).unwrap_or(1)); }
 ```
 
 ```bash
-# In CI, after a failed test run, hand the new snapshots to the agent
 SNAPS=$(find . -name '*.snap.new' | jq -Rsc 'split("\n") | map(select(length>0))')
 agentic-harness run snapshot-repair --workspace . --id "ci-$RUN" \
   --payload "{\"failing\":$SNAPS}"
 ```
 
-### Codebase Cartographer (Parallel Tasks)
+</details>
 
-A one-shot agent that produces `ARCHITECTURE.md` for a repo it's never seen. It
-fans out one detached `Session::task` per top-level module, each with its own
-message history but sharing the workspace, then merges the children's notes into
-a single document. This is the Rust analogue of "kick off N research subagents
-in parallel and stitch the results."
+<details>
+<summary><b>Parallel tasks — codebase cartographer</b></summary>
+<br>
+
+Fan out one `session.task()` per top-level module, merge the results into `ARCHITECTURE.md`:
 
 ```rust
-// src/main.rs
-use agentic_harness::prelude::*;
-use serde::Deserialize;
-use serde_json::json;
-
-#[derive(Deserialize)]
-struct Payload { src_dir: Option<String> }
-
-fn app() -> Result<AgentApp, AgenticHarnessError> {
-    Ok(AgentApp::new()
-        .with_workspace(".")
-        .load_workspace_context()?
-        .agent(AgentDefinition::cli("cartograph", |ctx: AgentContext| {
-            let src = ctx.payload::<Payload>()?.src_dir.unwrap_or_else(|| "src".into());
-            let session = ctx.session_with_id(ctx.id());
-
-            let mut sections = Vec::new();
-            for entry in session
-                .readdir(&src)?
-                .into_iter()
-                .filter(|e| e.is_dir)
-            {
-                let child = session.task_with_id(
-                    format!("module-{}", entry.name),
-                    format!(
-                        "Summarize the public surface and responsibilities of {}/{}.\n\
-                         List entry points and any cross-module imports.",
-                        src, entry.name,
-                    ),
-                    TaskOptions::new().role("module-summarizer"),
-                )?;
-                sections.push(format!("## {}\n\n{}\n", entry.name, child.text()));
-            }
-
-            session.write("ARCHITECTURE.md", &sections.join("\n"))?;
-            Ok(json!({ "modules": sections.len() }))
-        })))
+let mut sections = Vec::new();
+for entry in session.readdir(&src)?.into_iter().filter(|e| e.is_dir) {
+    let child = session.task_with_id(
+        format!("module-{}", entry.name),
+        format!(
+            "Summarize the public surface of {src}/{name}. \
+             List entry points and cross-module imports.",
+            src = src, name = entry.name,
+        ),
+        TaskOptions::new().role("module-summarizer"),
+    )?;
+    sections.push(format!("## {}\n\n{}\n", entry.name, child.text()));
 }
-
-fn main() { std::process::exit(app().and_then(run_cli).unwrap_or(1)); }
+session.write("ARCHITECTURE.md", &sections.join("\n"))?;
 ```
 
-Each child task gets a fresh `AGENTS.md` + skill discovery scoped to its working
-directory, so adding a `module-summarizer` role tunes every task at once.
+</details>
 
-### Reproducer Sandbox (Remote Linux)
+<details>
+<summary><b>Remote sandbox — Linux reproducer over HttpSessionEnv</b></summary>
+<br>
 
-When an issue says "this fails on Linux but I'm on macOS," the agent provisions
-a clean Linux sandbox over `HttpSessionEnv`, checks out the branch, runs the
-reproducer steps, and captures evidence. The agent stays a native Rust binary on
-your laptop; shell and file operations run on the other side of an HTTP
-boundary.
+The agent stays a native Rust binary on your laptop; shell and file operations
+run on the other side of an HTTP boundary.
 
-````rust
+```rust
 use agentic_harness::HttpSessionEnv;
 
-let sandbox = HttpSessionEnv::new(
-        // Vercel Sandbox / Daytona / E2B / your own service.
-        std::env::var("SANDBOX_URL")?,
-        "/workspace",
-    )
-    .header(
-        "Authorization",
-        format!("Bearer {}", std::env::var("SANDBOX_TOKEN")?),
-    );
+let sandbox = HttpSessionEnv::new(std::env::var("SANDBOX_URL")?, "/workspace")
+    .header("Authorization", format!("Bearer {}", std::env::var("SANDBOX_TOKEN")?));
 
 let session = ctx.session_with_id_and_env("repro", sandbox);
-session.shell(&format!(
-    "git clone {repo} /workspace/repo && \
-     git -C /workspace/repo checkout {branch}"
-))?;
-let probe = session.shell(
-    "cd /workspace/repo && cargo test --no-fail-fast 2>&1 | tail -200",
-)?;
-
-session.write(
-    "/workspace/repro-report.md",
-    &format!("## exit: {}\n\n```\n{}\n```\n", probe.status, probe.stdout),
-)?;
-````
-
-The same protocol is documented in
-[`docs/http-session-env.md`](docs/http-session-env.md) — any sandbox provider
-that speaks it works without a custom adapter. The CLI surfaces it for ad-hoc
-use too:
+session.shell("git clone {repo} /workspace/repo && git -C /workspace/repo checkout {branch}")?;
+let probe = session.shell("cd /workspace/repo && cargo test --no-fail-fast 2>&1 | tail -200")?;
+session.write("/workspace/repro-report.md",
+    &format!("## exit: {}\n\n```\n{}\n```\n", probe.status, probe.stdout))?;
+```
 
 ```bash
 agentic-harness setup sandbox --target e2b --endpoint $SANDBOX_URL
-agentic-harness sandbox status --json
 agentic-harness sandbox exec "uname -a && rustc --version" --json
 ```
 
-### MCP Tools (Sentry)
+</details>
 
-MCP servers plug in as runtime tool providers. Connect once, hand the tools to a
-session, and the model can call `find_event`, `list_issues`, etc. directly.
-Streamable HTTP by default; pass `transport: Sse` for legacy SSE servers.
+<details>
+<summary><b>MCP tools — Sentry integration</b></summary>
+<br>
 
 ```rust
 use agentic_harness::McpServerOptions;
@@ -356,23 +280,18 @@ let sentry = ctx.connect_mcp(
 
 let session = ctx.session_with_id(ctx.id()).with_tools(sentry);
 let plan = session.prompt(
-    "Find the highest-volume new error in the last 24h, locate the \
-     commit that introduced it, and draft a hot-fix plan with \
-     rollback steps.",
+    "Find the highest-volume new error in the last 24h, locate the commit that \
+     introduced it, and draft a hot-fix plan with rollback steps.",
 )?;
 ```
 
-### Schema-Guided Cargo Audit
+</details>
 
-Get typed, schema-validated data back from a prompt without manual JSON
-wrangling. The model returns prose plus a structured block;
-`prompt_json_with_options` extracts and decodes it directly into your type.
+<details>
+<summary><b>Schema-guided output — typed <code>cargo audit</code> results</b></summary>
+<br>
 
 ```rust
-use agentic_harness::PromptOptions;
-use serde::Deserialize;
-use serde_json::json;
-
 #[derive(Deserialize)]
 struct CrateAudit {
     advisories: Vec<Advisory>,
@@ -380,118 +299,64 @@ struct CrateAudit {
     next_action: String,
 }
 
-#[derive(Deserialize)]
-struct Advisory { id: String, package: String, severity: Severity }
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Severity { Low, Medium, High, Critical }
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum Risk { None, Low, Medium, High, Critical }
-
 let audit: CrateAudit = session.prompt_json_with_options(
-    "Run `cargo audit`, group by severity, and pick the smallest safe upgrade plan.",
+    "Run `cargo audit`, group by severity, pick the smallest safe upgrade plan.",
     PromptOptions::new().result_schema(json!({
         "type": "object",
         "required": ["advisories", "risk", "next_action"],
         "properties": {
-            "advisories": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["id", "package", "severity"],
-                    "properties": {
-                        "id":       { "type": "string" },
-                        "package":  { "type": "string" },
-                        "severity": {
-                            "enum": ["low", "medium", "high", "critical"]
-                        }
-                    }
-                }
-            },
-            "risk": {
-                "enum": ["none", "low", "medium", "high", "critical"]
-            },
+            "advisories": { "type": "array", "items": { "type": "object",
+                "properties": { "id": {"type":"string"}, "package": {"type":"string"},
+                  "severity": {"enum":["low","medium","high","critical"]} } } },
+            "risk": { "enum": ["none","low","medium","high","critical"] },
             "next_action": { "type": "string" }
         }
     })),
 )?;
 ```
 
-Structured `---RESULT_START---` / `---RESULT_END---` block extraction is built
-in, so the model can return reasoning prose alongside the typed payload.
+Built-in `---RESULT_START---` / `---RESULT_END---` extraction means the model can
+return reasoning prose alongside the typed payload — no manual JSON wrangling.
 
-## Agents And Sessions
+</details>
 
-Every agent invocation runs inside an initialized agent runtime. For HTTP
-agents, the agent ID is the last path segment:
+---
 
-```text
-POST /agents/<agent-name>/<id>
-```
-
-Reuse the same ID to continue the same conversation. Use a new ID to start
-fresh.
+## Sessions, Tasks & Roles
 
 ```bash
-# Start a conversation (port 3583 is `agentic-harness dev`'s default)
+# Start a session
 curl http://localhost:3583/agents/hello/session-abc \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ada"}'
+  -H "Content-Type: application/json" -d '{"name":"Ada"}'
 
-# Continue it
+# Continue the same session (same id)
 curl http://localhost:3583/agents/hello/session-abc \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ada"}'
+  -H "Content-Type: application/json" -d '{"name":"Ada"}'
 
-# Start a separate conversation
+# New session (new id)
 curl http://localhost:3583/agents/hello/session-xyz \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Ada"}'
+  -H "Content-Type: application/json" -d '{"name":"Ada"}'
 ```
 
-Sessions persist message history, compactions, and branch summaries through a
-`SessionStore` trait. The native runtime ships with in-memory and file-backed
-stores via `AgentApp::file_session_store`. Non-native runtimes (Workers, custom
-hosts) plug in their own.
-
-### Tasks
-
-Use `Session::task` to run a focused, one-shot child agent. Tasks share the same
-sandbox/filesystem but get their own message history and re-discover `AGENTS.md`
-and skills from their working directory.
+**Tasks** run a focused one-shot child agent with fresh history, sharing the workspace:
 
 ```rust
-let session = ctx.session_with_id(ctx.id());
-
 let research = session.task(
     "Research the auth flow and summarize the key files.",
     TaskOptions::new().role("researcher"),
 )?;
-
 let plan = session.prompt(format!(
-    "Use this research to draft the implementation plan:\n\n{}",
-    research.text()
+    "Use this research to draft the implementation plan:\n\n{}", research.text()
 ))?;
 ```
 
-### Roles And Skills
+**Roles** live in `.agentic-harness/roles/`, **Skills** in `.agents/skills/` — both
+auto-discovered. Precedence: *call role > session role > agent role*, applied as
+call-scoped system-prompt overlays that never pollute persisted message history.
 
-Roles live in `.agentic-harness/roles/` (or `roles/`). Skills live in
-`.agents/skills/` (or `skills/`). Both are auto-discovered from the workspace.
-Precedence is **call role > session role > agent role**, applied as call-scoped
-system prompt overlays — they never pollute the persisted message history.
-
-### Automatic Compaction
-
-Long-running sessions stay inside a configured context budget without manual
-surgery.
+**Automatic compaction** keeps long-running sessions inside a context budget:
 
 ```rust
-use agentic_harness::{CompactionSettings, PromptOptions};
-
 let response = session.prompt_with_options(
     "Continue from the current plan.",
     PromptOptions::new().compaction(
@@ -503,151 +368,80 @@ let response = session.prompt_with_options(
 )?;
 ```
 
-## Connectors
+---
 
-Connectors adapt third-party services (sandbox providers, model gateways, MCP
-catalogs) into Agentic Harness. They aren't a crates.io package — they're
-recipes you pipe to your coding agent, which writes the small Rust adapter for
-you.
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `agentic-harness guide` | Interactive TUI — guided front door |
+| `agentic-harness code` | Run the coding-agent loop on a workspace |
+| `agentic-harness new <path>` | Scaffold a new agent project from a template |
+| `agentic-harness dev` | Watch-mode dev server with auto-reload |
+| `agentic-harness run <name>` | One-shot CLI invocation of any agent |
+| `agentic-harness serve` | Start the HTTP server (production mode) |
+| `agentic-harness host` | Long-running local server from `hosting.toml` |
+| `agentic-harness build` | Build for `--target native`, `node`, or `cloudflare` |
+| `agentic-harness doctor` | Workspace readiness check |
+| `agentic-harness dashboard` | Status, templates, recent runs, next steps |
+| `agentic-harness inspect` | Read latest coding-run summary |
+| `agentic-harness sandbox` | Manage remote Linux sandboxes |
+| `agentic-harness add` | Add a connector recipe |
+| `agentic-harness smoke` | Post-install end-to-end check |
+| `agentic-harness package` | Stage release packages with manifest and checksums |
+
+**Connectors** are recipes you pipe to your coding agent — it writes the small Rust
+adapter for you:
 
 ```bash
-agentic-harness add                                 # list available connectors
-agentic-harness add daytona | claude                # pipe to your coding agent
-agentic-harness add e2b   | codex
-# From any docs URL:
+agentic-harness add                      # list available connectors
+agentic-harness add daytona | claude     # pipe to your coding agent
+agentic-harness add e2b     | codex
 agentic-harness add https://e2b.dev/docs --category sandbox | claude
 ```
 
-When stdout is piped or a known coding-agent environment is detected, `add`
-prints the raw connector instructions. In a plain terminal it prints a short
-copyable recipe.
+---
 
-## Running Agents
+## Why Rust
 
-### Local Dev (`agentic-harness dev`)
-
-Long-running watch-mode dev server. Source/config changes restart the child
-server; `target/`, `dist/`, `.git/`, `node_modules/` are ignored.
-
-```bash
-agentic-harness dev --workspace examples/hello-world --port 3583
-agentic-harness dev --workspace . --env .env
-```
-
-`--env <path>` loads a `.env`-format file. Repeatable; later files override
-earlier ones; shell-set env vars win.
-
-### Local Hosting (`agentic-harness host`)
-
-The shorter on-ramp to a long-running local server. Configure once, then start
-it from anywhere with the same TOML.
-
-```bash
-agentic-harness setup hosting --workspace . --addr 127.0.0.1:3583
-agentic-harness hosting status --workspace . --json
-agentic-harness host --workspace .          # production-shaped local server
-agentic-harness host --workspace . --dev    # watch + reload
-```
-
-`setup hosting` writes `.agentic-harness/hosting.toml`; `host` reads it and
-delegates to the same native server path as `serve` (and `--dev` delegates to
-the same watch/reload path as `dev`). This is local hosting only — not a
-deployment path.
-
-### One-Shot CLI (`agentic-harness run`)
-
-Build and invoke any agent locally — perfect for CI, scripts, or one-off
-triggers.
-
-```bash
-agentic-harness run hello --workspace . --id test-1 \
-  --payload '{"name":"Ada"}'
-```
-
-### Build For Deployment (`agentic-harness build`)
-
-```bash
-# Self-contained Rust binary + manifest.json
-agentic-harness build --workspace . --target native
-
-# Node host package around the native binary
-agentic-harness build --workspace . --target node
-
-# Worker adapter + Durable Object bindings
-agentic-harness build --workspace . --target cloudflare
-```
-
-`--target cloudflare` produces non-proxy Worker boundary artifacts: `_entry.js`,
-`agentic_harness_worker.js`, `wrangler.jsonc`, and an adapter contract
-documented in `agentic_harness_app.d.ts`. See
-[`docs/cloudflare-runtime.md`](docs/cloudflare-runtime.md) for the full pipeline
-(`--worker-app`, `--worker-wasm`, `--worker-wasm-crate`).
-
-### Doctor, Smoke, Status
-
-```bash
-# Readiness for a workspace
-agentic-harness doctor --workspace . --json
-
-# Post-install end-to-end check
-agentic-harness smoke --json
-
-# Status, templates, recent runs, next steps
-agentic-harness dashboard --workspace . --json
-```
-
-### Release Packaging
-
-```bash
-agentic-harness package --output dist/packages --json
-agentic-harness release-check --json
-```
-
-`package` stages the current CLI binary into a versioned OS/architecture folder
-with `manifest.json` and `SHA256SUMS`; `release-check` verifies the install
-script, Homebrew formula, changelog, binary-package docs, and release smoke
-checklist before publishing.
-
-## Why Native Rust
-
-- Single toolchain — `cargo` builds, tests, ships, and runs everything. No
-  bundler, no transpile step, no language runtime to install.
-- The built artifact is a self-contained native executable plus a
-  `manifest.json`.
-- Handler APIs are typed end-to-end with full compile-time checking at the
-  boundary.
-- Model integration is a trait (`ModelClient`), so providers can be swapped
-  without touching agent handlers.
-- File / search / edit / shell helpers are ordinary Rust methods, easy to unit
-  test.
-- The test suite covers SDK behavior, CLI behavior, generated build artifacts,
+- **One toolchain** — `cargo` builds, tests, ships, and runs everything. No bundler,
+  transpile step, or language runtime to install on the target.
+- **One artifact** — self-contained native executable plus `manifest.json`.
+- **Typed end-to-end** — handler boundaries have compile-time checking;
+  `ModelClient` is a trait, so providers swap without touching handlers.
+- **Easy to test** — file/search/edit/shell helpers are ordinary Rust methods.
+  The suite covers SDK behavior, CLI behavior, generated build artifacts,
   env-file loading, session persistence, and HTTP route behavior.
+
+---
+
+## Workspace
+
+| Crate | Contents |
+|-------|----------|
+| [`crates/agentic-harness`](crates/agentic-harness) | SDK — agent registry, context, sessions, roles, skills, tools, HTTP serving |
+| [`crates/agentic-harness-cli`](crates/agentic-harness-cli) | CLI — `wizard`, `code`, `new`, `template`, `setup`, `doctor`, `build`, `dev`, `run`, `serve`, `manifest`, `add` |
+| [`examples/hello-world`](examples/hello-world) | Native Rust example agent workspace |
+
+---
 
 ## Documentation
 
-Long-form docs live in [`docs/`](docs/):
+| Doc | Description |
+|-----|-------------|
+| [docs/README.md](docs/README.md) | Documentation index — start here |
+| [execution-targets.md](docs/execution-targets.md) | Local / CI / sandbox / Cloudflare target details |
+| [runtime-config.md](docs/runtime-config.md) | Provider defaults and model registration |
+| [http-session-env.md](docs/http-session-env.md) | HttpSessionEnv wire format for remote sandboxes |
+| [cloudflare-runtime.md](docs/cloudflare-runtime.md) | Worker boundary, Durable Objects, adapter ABI |
+| [deploy-node.md](docs/deploy-node.md) | Node hosting around the native binary |
+| [connectors.md](docs/connectors.md) | Sandbox connector helpers |
+| [virtual-sandbox.md](docs/virtual-sandbox.md) | Hostless in-memory filesystem and shell subset |
+| [feature-status.md](docs/feature-status.md) | What's shipped, with code/test/doc evidence |
+| [immediate-goals.md](docs/immediate-goals.md) | Roadmap and non-goals |
+| [release-smoke-test.md](docs/release-smoke-test.md) | Pre-publish checklist |
 
-- [Docs index](docs/README.md) — start here
-- [Execution Targets](docs/execution-targets.md) — local / CI / sandbox /
-  Cloudflare split
-- [Runtime Config](docs/runtime-config.md) — provider defaults, model
-  registration
-- [HTTP SessionEnv Protocol](docs/http-session-env.md) — exact wire format for
-  remote sandboxes
-- [Cloudflare Runtime](docs/cloudflare-runtime.md) — Worker boundary build,
-  Durable Objects, adapter ABI
-- [Node Hosts](docs/deploy-node.md) — `node server.mjs` hosting around the
-  native binary
-- [Sandbox Connectors](docs/connectors.md) — provider-scoped HTTP sandbox
-  connector helpers
-- [Virtual Sandbox](docs/virtual-sandbox.md) — hostless in-memory filesystem and
-  shell subset
-- [Feature Status](docs/feature-status.md) — what's shipped, with code/test/doc
-  evidence
-- [Roadmap](docs/immediate-goals.md) — the next product slice and explicit
-  non-goals
-- [Release Smoke Test](docs/release-smoke-test.md) — clean-machine pre-publish
-  checklist
+---
 
 ## Development
 
@@ -657,6 +451,8 @@ cargo test --workspace
 cargo clippy --workspace -- -D warnings
 ```
 
+---
+
 ## License
 
-See [`LICENSE`](LICENSE).
+[LICENSE](LICENSE)
