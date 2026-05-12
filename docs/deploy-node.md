@@ -3,6 +3,9 @@
 Use this when a platform expects a Node start command but you want the agent
 runtime to stay native Rust.
 
+This target does not transpile the agent to JavaScript. It packages the native
+agent binary plus a small `server.mjs` launcher.
+
 Build the package:
 
 ```bash
@@ -32,3 +35,13 @@ node server.mjs
 
 The launcher reads `HOST` and `PORT`, defaults to `0.0.0.0:3583`, then starts
 the native binary with `--agentic-harness-serve`.
+
+## Verify
+
+```bash
+curl "http://127.0.0.1:${PORT:-3583}/health"
+curl "http://127.0.0.1:${PORT:-3583}/agents"
+```
+
+If the host cannot execute native binaries, use a different target. The Node
+package still requires the compiled Rust executable.

@@ -5,6 +5,10 @@ native runtime uses operating-system primitives that Cloudflare Workers do not
 provide: TCP listeners, process spawning, host filesystem access, and blocking
 HTTP calls.
 
+Read this document when you need to understand exactly what
+`agentic-harness build --target cloudflare` produces and what still has to be
+provided by a Worker-compatible adapter.
+
 Cloudflare is therefore an optional edge-control target, not the primary
 execution environment for coding agents. Coding agents should run against a
 local checkout, CI runner, or remote Linux sandbox such as Vercel Sandbox,
@@ -37,9 +41,9 @@ without the native feature when constructed with
 `HttpSessionTransport` by forwarding the JSON protocol through Worker `fetch` or
 another platform capability.
 
-The OpenAI-compatible model client is also split at a transport boundary.
-Native binaries use the built-in `reqwest` transport, while Worker/WASM adapters
-can construct `OpenAiCompatibleModel::with_transport(...)` with an
+The OpenAI-compatible model client is also split at a transport boundary. Native
+binaries use the built-in `reqwest` transport, while Worker/WASM adapters can
+construct `OpenAiCompatibleModel::with_transport(...)` with an
 `HttpModelTransport` implementation that forwards requests through platform
 HTTP, such as Worker `fetch`.
 
@@ -49,20 +53,19 @@ router without using native TCP serving. The core router supports
 `Accept: text/event-stream` on `/agents/<name>/<id>` for SSE responses, matching
 the Worker request shape expected by a future Cloudflare runtime.
 
-For live streaming, the core exposes `AgentApp::invoke_with_event_sink`. A Worker
-adapter can connect that sink to a `TransformStream` writer so text/tool/result
-events are emitted during handler execution instead of only after the handler
-returns. `RuntimeEvent::to_sse_frame` provides the shared SSE frame encoding for
-that stream.
+For live streaming, the core exposes `AgentApp::invoke_with_event_sink`. A
+Worker adapter can connect that sink to a `TransformStream` writer so
+text/tool/result events are emitted during handler execution instead of only
+after the handler returns. `RuntimeEvent::to_sse_frame` provides the shared SSE
+frame encoding for that stream.
 
 For WASM app adapters, the core also exposes `WorkerAppRequest`,
 `WorkerAppResponse`, and `AgentApp::handle_worker_app_request`. The request
-shape is `{ agentName, id, payload }`; the response shape carries status, result,
-error envelope, and runtime events. The generated default WASM adapter unwraps
-that response, throws typed errors, and returns the result to the Worker runtime
-shim.
-Rust WASM crates can use `agentic_harness_worker_app!(app_fn)` to export the ABI
-functions expected by that generated adapter.
+shape is `{ agentName, id, payload }`; the response shape carries status,
+result, error envelope, and runtime events. The generated default WASM adapter
+unwraps that response, throws typed errors, and returns the result to the Worker
+runtime shim. Rust WASM crates can use `agentic_harness_worker_app!(app_fn)` to
+export the ABI functions expected by that generated adapter.
 
 The core can now derive Cloudflare routing metadata with
 `AgentApp::cloudflare_worker_manifest`. It maps each webhook agent to the
@@ -79,8 +82,8 @@ The native CLI can retrieve that metadata from a Rust app with
 same metadata in `agentic-harness build --target cloudflare` to write:
 
 - `dist/_entry.js`: Worker entrypoint and Durable Object routing module.
-- `dist/wrangler.jsonc`: Worker main module, compatibility date, Durable
-  Object binding, and SQLite migration config.
+- `dist/wrangler.jsonc`: Worker main module, compatibility date, Durable Object
+  binding, and SQLite migration config.
 - `dist/cloudflare-manifest.json`: raw Worker routing metadata.
 - `dist/agentic_harness_worker.js`: Worker-side JSON parsing, synchronous
   responses, SSE responses, webhook acceptance, and Durable Object SQL-backed
@@ -91,27 +94,46 @@ same metadata in `agentic-harness build --target cloudflare` to write:
   `AgenticHarnessWorkerContext`, `AgenticHarnessSessionStore`, event emission,
   initialization, and invocation.
 
-When a Worker-compatible app adapter already exists, pass
-`--worker-app <path>` to `agentic-harness build --target cloudflare`. The CLI
-copies that file to `dist/agentic_harness_app.js` instead of writing the
-`handler_not_linked` stub. The adapter must export:
+When a Worker-compatible app adapter already exists, pass `--worker-app <path>`
+to `agentic-harness build --target cloudflare`. The CLI copies that file to
+`dist/agentic_harness_app.js` instead of writing the `handler_not_linked` stub.
+The adapter must export:
 
 - `initAgenticHarnessApp()`: optional async initialization hook.
-- `invokeAgenticHarnessAgent(context)`: async handler called with `{ request,
-  state, env, agentName, id, payload, sessionStore, emit }`.
+- `invokeAgenticHarnessAgent(context)`: async handler called with
+  `{ request, state, env, agentName, id, payload, sessionStore, emit }`.
 
 Pass `--worker-wasm <path>` to copy the adapter's companion module to
 `dist/agentic_harness_app.wasm`. If no `--worker-app` is provided, the CLI
-generates a default JSON ABI adapter. That adapter expects exported
-`memory`, `agentic_harness_alloc(len)`, `agentic_harness_invoke(ptr, len)`,
-`agentic_harness_last_result_len()`, and optional `agentic_harness_init()`.
-The SDK macro also exports `agentic_harness_dealloc(ptr, len)` for callers that
-need to free input buffers after invocation.
-Pass `--worker-wasm-crate <path>` to compile that module from a Rust crate with
+generates a default JSON ABI adapter. That adapter expects exported `memory`,
+`agentic_harness_alloc(len)`, `agentic_harness_invoke(ptr, len)`,
+`agentic_harness_last_result_len()`, and optional `agentic_harness_init()`. The
+SDK macro also exports `agentic_harness_dealloc(ptr, len)` for callers that need
+to free input buffers after invocation. Pass `--worker-wasm-crate <path>` to
+compile that module from a Rust crate with
 `cargo build --release --target wasm32-unknown-unknown --no-default-features`
 and package the resulting `.wasm`.
 
 This is a non-proxy build boundary, not a complete Cloudflare deployment path.
+
+## Build Workflow
+
+```bash
+agentic-harness manifest --workspace . --cloudflare
+agentic-harness build --workspace . --target cloudflare --output ./build
+```
+
+If a Worker adapter already exists:
+
+```bash
+agentic-harness build --workspace . --target cloudflare --output ./build \
+  --worker-app ./worker-app.js \
+  --worker-wasm ./agentic_harness_app.wasm
+```
+
+The generated `agentic_harness_app.js` stub returns `handler_not_linked` until
+it is replaced by an adapter. Treat that as an explicit integration failure, not
+as a partially working deployment.
 
 ## Intended Role
 
@@ -133,8 +155,8 @@ A real Cloudflare target needs these pieces:
 - Worker-specific wiring that passes model and sandbox transports into the
   handler adapter, such as an in-memory filesystem, Cloudflare storage-backed
   filesystem, or explicit remote sandbox connector.
-- Replacement of the generated `handler_not_linked` app adapter with real handler
-  execution, without starting or proxying to a native server.
+- Replacement of the generated `handler_not_linked` app adapter with real
+  handler execution, without starting or proxying to a native server.
 
 ## Non-Goals
 
@@ -154,3 +176,16 @@ A real Cloudflare target needs these pieces:
 
 Full Cloudflare support should only be claimed when the Worker-compatible
 runtime above exists and has its own tests.
+
+## Verification
+
+Use these checks before publishing Cloudflare-facing changes:
+
+```bash
+cargo check -p agentic-harness --no-default-features
+cargo test --workspace
+agentic-harness build --workspace . --target cloudflare --output ./build
+```
+
+Then inspect `build/dist/agentic_harness_app.js`. If it still contains the
+`handler_not_linked` stub, the output is only a boundary package.

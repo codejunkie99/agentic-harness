@@ -2,9 +2,20 @@
 
 Status: implemented for the local CLI slice, with local hosting now in scope
 
-This document defines the next product slice for Agentic Harness. The immediate
-focus is local and sandboxed coding-agent creation plus loopback local hosting,
-not deployment.
+This document records the current product slice for Agentic Harness. It is a
+roadmap/status document, not the user guide. For commands to run today, start
+with [`../README.md`](../README.md) or `agentic-harness guide`.
+
+The focus is local and sandboxed coding-agent creation plus loopback local
+hosting, not deployment.
+
+## How To Read This
+
+- The acceptance criteria describe the intended local CLI slice.
+- Items marked as non-goals should stay out of this slice even if related
+  deployment features exist elsewhere.
+- Release-facing evidence for what is already implemented lives in
+  [`feature-status.md`](feature-status.md).
 
 ## Non-Goals For This Slice
 
@@ -28,13 +39,13 @@ For users who do write Rust directly, the SDK should expose a compact
 `agentic_harness::prelude::*` import for the stable agent-authoring surface.
 
 `agentic-harness guide` is the short start-here command for this flow. It prints
-the ordered path from install to LLM setup, template authoring, start coding, and
-result inspection; `--json` exposes the same steps to software agents.
+the ordered path from install to LLM setup, template authoring, start coding,
+and result inspection; `--json` exposes the same steps to software agents.
 
 ## Immediate Goal 1: Sandbox Environment
 
-Agentic Harness needs a first-class sandbox setup path for coding agents.
-The first version should support:
+Agentic Harness needs a first-class sandbox setup path for coding agents. The
+first version should support:
 
 - local checkout execution as the default sandbox,
 - a remote sandbox connector path through `SessionEnv`,
@@ -58,14 +69,14 @@ Acceptance criteria:
   fixes, readiness, and next command without requiring output scraping.
 - The TUI has a `Set up sandbox` workflow.
 - Local checkout works without credentials.
-- Local sandbox operations can show status, execute a command, read files,
-  write files, list directories, sync files, show logs, and clean up paths.
+- Local sandbox operations can show status, execute a command, read files, write
+  files, list directories, sync files, show logs, and clean up paths.
 - `agentic-harness sandbox exec --json` exposes command, exit code, stdout, and
   stderr as structured output for agents and TUI panels.
 - `agentic-harness sandbox status --json` exposes target, cwd, endpoint,
-  capabilities, smoke result, and recent logs for agents and TUI panels.
-  For configured HTTP SessionEnv endpoints, the smoke result comes from a
-  remote `pwd` and directory-list probe rather than config presence alone.
+  capabilities, smoke result, and recent logs for agents and TUI panels. For
+  configured HTTP SessionEnv endpoints, the smoke result comes from a remote
+  `pwd` and directory-list probe rather than config presence alone.
 - `agentic-harness sandbox logs --json` exposes ordered log entries for richer
   TUI log panels and software agents.
 - Remote sandbox setup produces a connector file or clear agent instructions,
@@ -156,9 +167,9 @@ Acceptance criteria:
   template-authoring briefs, the latest coding-run loop status, sandbox status,
   recent logs, and next commands.
 - `agentic-harness dashboard --workspace . --json` exposes the same readiness,
-  template, latest-run, sandbox, log, and next-command data for software
-  agents. Sandbox smoke status comes from the configured sandbox target and
-  endpoint, not a hard-coded local checkout probe.
+  template, latest-run, sandbox, log, and next-command data for software agents.
+  Sandbox smoke status comes from the configured sandbox target and endpoint,
+  not a hard-coded local checkout probe.
 - Short aliases `agentic-harness status` and `agentic-harness check` cover the
   common dashboard and doctor paths.
 - The TUI includes template, LLM environment, sandbox, run, and doctor flows.
@@ -183,7 +194,8 @@ The command should:
 1. Detect the current project.
 2. If no agent project exists, offer to create one from a coding template.
 3. If no model or LLM authoring environment is configured, route to setup.
-4. If no sandbox is configured, default to local checkout and offer remote setup.
+4. If no sandbox is configured, default to local checkout and offer remote
+   setup.
 5. Run `doctor`.
 6. Inspect the repository status and root files.
 7. Prepare deterministic plan steps from the prompt, repository context, patch
@@ -217,10 +229,25 @@ Non-interactive form:
 ```bash
 agentic-harness code --workspace ./my-agent --prompt "Fix the failing tests"
 agentic-harness inspect --workspace ./my-agent
-agentic-harness code --workspace ./my-agent --prompt "Fix the failing tests" --llm codex --test "cargo test"
-agentic-harness code --workspace ./my-agent --prompt "Fix the failing tests" --test "cargo test" --summary .agentic-harness/runs/last.md
-agentic-harness code --workspace ./my-agent --prompt "Apply the patch" --apply ./change.patch --test "cargo test" --commit "Apply generated fix"
-agentic-harness code --workspace ./my-agent --prompt "Open the PR" --apply ./change.patch --test "cargo test" --commit "Apply generated fix" --pr
+agentic-harness code --workspace ./my-agent \
+  --prompt "Fix the failing tests" \
+  --llm codex \
+  --test "cargo test"
+agentic-harness code --workspace ./my-agent \
+  --prompt "Fix the failing tests" \
+  --test "cargo test" \
+  --summary .agentic-harness/runs/last.md
+agentic-harness code --workspace ./my-agent \
+  --prompt "Apply the patch" \
+  --apply ./change.patch \
+  --test "cargo test" \
+  --commit "Apply generated fix"
+agentic-harness code --workspace ./my-agent \
+  --prompt "Open the PR" \
+  --apply ./change.patch \
+  --test "cargo test" \
+  --commit "Apply generated fix" \
+  --pr
 ```
 
 Acceptance criteria:
@@ -252,8 +279,8 @@ Acceptance criteria:
 - The loop can execute checks and save Markdown or JSON run summaries for later
   review by humans or software agents, including default latest-run summaries
   for no-flag coding runs.
-- `agentic-harness inspect --workspace <path>` reads the latest Markdown summary,
-  and `--json` reads the latest structured summary.
+- `agentic-harness inspect --workspace <path>` reads the latest Markdown
+  summary, and `--json` reads the latest structured summary.
 - The run summary includes project context and a changed-files section derived
   from git status and applied patch metadata.
 - The Markdown and JSON run summaries include a coding loop timeline that shows
@@ -293,8 +320,14 @@ Target command:
 
 ```bash
 agentic-harness setup llm
-agentic-harness template author code-review --env codex --prompt "Create a code-review agent template" --open
-agentic-harness template author code-review --env codex --prompt "Create a code-review agent template" --json
+agentic-harness template author code-review \
+  --env codex \
+  --prompt "Create a code-review agent template" \
+  --open
+agentic-harness template author code-review \
+  --env codex \
+  --prompt "Create a code-review agent template" \
+  --json
 ```
 
 Expected sub-options:
@@ -354,8 +387,8 @@ Acceptance criteria:
 - `agentic-harness template author --json` exposes the brief path, selected LLM
   open command, validation commands, next scaffold command, and generated-agent
   doctor check as structured data for software agents and TUI panels.
-- `agentic-harness template author --open` runs the selected Claude Code,
-  Codex, Cursor, or Wind Server command from the target workspace only after
+- `agentic-harness template author --open` runs the selected Claude Code, Codex,
+  Cursor, or Wind Server command from the target workspace only after
   preflighting LLM readiness, then streams live output while the LLM creates
   `./<template>` from the generated brief.
 - After `--open` returns, the CLI validates the generated `./<template>` pack
@@ -449,6 +482,17 @@ This slice is complete when a new user can:
 6. Inspect the result through dashboard/log output.
 7. Run the agent locally or in a configured sandbox.
 
-No deployment path is required for this definition of done.
-Distribution packaging is allowed because it installs the local tool; it does
-not add an application deployment path.
+No deployment path is required for this definition of done. Distribution
+packaging is allowed because it installs the local tool; it does not add an
+application deployment path.
+
+## Documentation Exit Criteria
+
+The public docs for this slice should answer:
+
+- how a user starts from a fresh checkout,
+- which command checks readiness,
+- where coding-run artifacts are written,
+- how local and remote sandbox execution differ,
+- which targets are runtime targets and which are build boundaries,
+- which checks must pass before release.

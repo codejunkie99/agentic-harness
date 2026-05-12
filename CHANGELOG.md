@@ -21,13 +21,13 @@
   CLIs as timed out.
 - Codex and Claude Code launcher paths now use their real non-interactive
   coding-agent modes instead of passing only the brief file path.
-- Cursor launcher paths use `cursor agent --print --trust --force` for
-  headless authoring and coding runs.
+- Cursor launcher paths use `cursor agent --print --trust --force` for headless
+  authoring and coding runs.
 - Live LLM launcher output is streamed while still being captured for run
   summaries, so long Codex/Claude authoring and coding runs do not appear
   frozen.
-- `template author --open` validates the generated `./<template>` pack after
-  the selected LLM exits and reports the template path before returning.
+- `template author --open` validates the generated `./<template>` pack after the
+  selected LLM exits and reports the template path before returning.
 - `template author --open --json` now preserves stdout as a single final JSON
   object and reports `opened` plus `postOpenValidation` while streaming live LLM
   output to stderr.
@@ -41,19 +41,19 @@
   check mode so downstream agents can tell where verification actually ran.
 - Coding-agent summaries expose parsed JSON `agentResult` separately from raw
   stdout, including fields such as `summary` and `generatedPatch`.
-- Coding-agent summaries now record files edited by an external coding LLM
-  under `llm.changedFiles` in JSON and in the Markdown LLM section.
+- Coding-agent summaries now record files edited by an external coding LLM under
+  `llm.changedFiles` in JSON and in the Markdown LLM section.
 - `agentic-harness code` now uses an actionable default coding brief in
   non-interactive no-prompt runs instead of the vague `Inspect the project`
   fallback.
 - Dashboard sandbox status now runs the configured sandbox smoke check, so
   remote HTTP SessionEnv endpoints report remote readiness instead of local
   checkout readiness.
-- Local hosting is now a first-class local-only capability:
-  `setup hosting` writes `.agentic-harness/hosting.toml`, `hosting status
-  --json` exposes loopback URLs and native HTTP capabilities, `host` starts the
-  configured server, and the dashboard/TUI show the local hosting path without
-  introducing a deployment workflow.
+- Local hosting is now a first-class local-only capability: `setup hosting`
+  writes `.agentic-harness/hosting.toml`, `hosting status --json` exposes
+  loopback URLs and native HTTP capabilities, `host` starts the configured
+  server, and the dashboard/TUI show the local hosting path without introducing
+  a deployment workflow.
 - TUI-style wizard for coding, templates, LLM authoring setup, sandbox setup,
   running agents, and doctor checks, with `tui` and `ui` aliases for the common
   entrypoint. Second-level screens show contextual panels for LLM availability,
@@ -61,21 +61,21 @@
   example manifests, readiness, and next fixes. Option screens preview the exact
   workspace-aware command before execution, contextual panel commands honor the
   selected `--workspace`, and the sandbox panel shows smoke status plus the
-  latest log entry. The guided LLM coding shortcut
-  uses `agentic-harness code --llm auto` so it follows local CLI detection.
-  Dashboard and coding panels surface the latest coding-run loop status when a
-  latest summary exists. `wizard`/`tui`/`ui` accept `--workspace <path>` so the
+  latest log entry. The guided LLM coding shortcut uses
+  `agentic-harness code --llm auto` so it follows local CLI detection. Dashboard
+  and coding panels surface the latest coding-run loop status when a latest
+  summary exists. `wizard`/`tui`/`ui` accept `--workspace <path>` so the
   dashboard panels and current-workspace actions target the selected project.
 - Template packs, including `template init`, validation, install, preview, and
   `new --template` scaffolding, plus `template author --open` for preflighting
   LLM readiness before launching the selected tool from the target workspace
   with the generated brief and live output. Authoring briefs now include
   validate, JSON preview, install, scaffold, and doctor commands plus a local
-  CLI fallback path for validation when
-  `agentic-harness` is not on PATH, and `template author --json` exposes the
-  brief path, open command, and validation commands for software agents and TUI
-  panels. `template search` and `tpl find` search built-in, workspace, user, and
-  team template scopes with JSON output for agents.
+  CLI fallback path for validation when `agentic-harness` is not on PATH, and
+  `template author --json` exposes the brief path, open command, and validation
+  commands for software agents and TUI panels. `template search` and `tpl find`
+  search built-in, workspace, user, and team template scopes with JSON output
+  for agents.
 - Local sandbox setup and local sandbox file/shell operations, plus remote
   connector instructions for hosted sandbox providers.
 - Release packaging starter artifacts: local install script, Homebrew formula,

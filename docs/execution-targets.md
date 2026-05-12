@@ -1,13 +1,13 @@
 # Execution Targets
 
-Agentic Harness is the native Rust runtime for software agents. Its primary
-job is to run agents that can inspect repositories, edit files, call tools, run
+Agentic Harness is the native Rust runtime for software agents. Its primary job
+is to run agents that can inspect repositories, edit files, call tools, run
 tests, and preserve task history. Those jobs need a real execution environment,
 so deployment targets and coding targets are intentionally separate.
 
-## Default Product Path
+## Recommended Runtime Path
 
-The default coding-agent path should be:
+The recommended coding-agent path is:
 
 ```text
 Agentic Stack TUI or host adapter
@@ -15,10 +15,10 @@ Agentic Stack TUI or host adapter
   -> local checkout, CI runner, or remote Linux sandbox
 ```
 
-The user-facing product should be simple, for example a top-level `agentic` TUI
-with actions like Code, Review, Test, Triage, and Release. Long CLI commands
-remain useful for CI and other software agents, but they should not be the main
-human interface.
+The human-facing layer should stay simple: Code, Review, Test, Triage, Release,
+and Inspect. Long CLI commands remain useful for CI and other software agents,
+but the default human path should be a guided local UI or a short command such
+as `agentic-harness guide`.
 
 Agentic Harness stays below that interface as the execution engine. It provides
 agents, sessions, model calls, tools, file/search/shell helpers, MCP, structured
@@ -26,15 +26,36 @@ results, and HTTP/SSE route handling.
 
 ## Target Roles
 
-| Target | Role | Why |
-| --- | --- | --- |
-| Local checkout | Default development target | Fast, transparent, best for interactive coding and TUI workflows. |
-| CI runner | Automation target | Good for issue triage, PR review, test reproduction, and release jobs. |
-| Vercel Sandbox | Hosted coding target | Provides a real Linux-style environment for filesystem, shell, dependency install, tests, and isolated code changes. |
-| Daytona/E2B/other remote sandbox | Hosted coding target | Same role as Vercel Sandbox: isolate shell and filesystem work from the host. |
-| Native HTTP server | Self-hosted API target | Useful when another app or service invokes agents over HTTP/SSE. |
-| Node host package | Node-oriented host target | Starts the native Rust server through `server.mjs` on platforms that expect a Node entrypoint. |
-| Cloudflare Workers | Edge/control target | Good for webhooks, route metadata, small control endpoints, and Durable Object routing; not the default place to run coding work. |
+- **Local checkout**: default development target. Fast, transparent, and best
+  for interactive coding and TUI workflows.
+- **CI runner**: automation target for issue triage, PR review, test
+  reproduction, and release jobs.
+- **Vercel Sandbox**: hosted coding target with a real Linux-style environment
+  for filesystem work, shell commands, dependency installs, tests, and isolated
+  code changes.
+- **Daytona, E2B, or another remote sandbox**: hosted coding target with the
+  same role as Vercel Sandbox; it isolates shell and filesystem work from the
+  host.
+- **Native HTTP server**: self-hosted API target for invoking agents over
+  HTTP/SSE from another app or service.
+- **Node host package**: Node-oriented host target that starts the native Rust
+  server through `server.mjs` on platforms that expect a Node entrypoint.
+- **Cloudflare Workers**: edge/control target for webhooks, route metadata,
+  small control endpoints, and Durable Object routing; not the default place to
+  run coding work.
+
+## Choosing A Target
+
+- Choose **local checkout** when you want direct interactive edits and the
+  developer already has the right toolchain installed.
+- Choose **CI** when the repository is already checked out and the task is
+  repeatable: triage, release checks, snapshot repair, or PR review.
+- Choose a **remote sandbox** when the task needs Linux isolation, dependency
+  installation, or reproducibility away from the user's machine.
+- Choose **Node host package** when the hosting platform requires
+  `node server.mjs` but the agent should still run as a native Rust binary.
+- Choose **Cloudflare** only for edge routing/control output unless you have a
+  Worker-compatible app adapter.
 
 ## Why Cloudflare Is Not Central
 
@@ -99,8 +120,8 @@ Agentic Harness should own the runtime:
 - native build/run/dev/serve behavior,
 - platform-neutral HTTP/SSE entrypoints.
 
-This split keeps the runtime reusable while allowing Agentic Stack to become
-the simple product surface people actually operate.
+This split keeps the runtime reusable while allowing Agentic Stack to become the
+simple product surface people actually operate.
 
 ## Practical Roadmap
 
