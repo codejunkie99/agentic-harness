@@ -45,8 +45,8 @@ Pick the path that matches what you are trying to do:
 - [`crates/agentic-harness`](crates/agentic-harness): Rust SDK for the agent
   registry, context, sessions, roles, skills, tools, and HTTP serving.
 - [`crates/agentic-harness-cli`](crates/agentic-harness-cli): Rust CLI for
-  `wizard`, `code`, `new`, `template`, `setup`, `doctor`, `build`, `dev`, `run`,
-  `serve`, `manifest`, and `add`.
+  `wizard`, `code`, `score`, `new`, `template`, `setup`, `doctor`, `build`,
+  `dev`, `run`, `serve`, `manifest`, and `add`.
 - [`examples/hello-world`](examples/hello-world): Native Rust example agent
   workspace.
 
@@ -70,11 +70,13 @@ agentic-harness guide --workspace . --env codex
 agentic-harness doctor --workspace . --json
 agentic-harness dashboard --workspace . --plain
 agentic-harness code --workspace . --llm auto --prompt "Fix the failing tests"
+agentic-harness score --workspace . --run latest
 agentic-harness inspect --workspace .
 ```
 
 `doctor` checks readiness, `dashboard` summarizes the workspace, `code` runs the
-coding-agent loop, and `inspect` reads the latest coding-run summary.
+coding-agent loop, `score` evaluates the latest run, and `inspect` reads the
+latest coding-run summary.
 
 ## Examples
 
@@ -565,6 +567,46 @@ agentic-harness smoke --json
 # Status, templates, recent runs, next steps
 agentic-harness dashboard --workspace . --json
 ```
+
+### Harness Score
+
+`agentic-harness score` evaluates a coding run from the durable artifacts under
+`.agentic-harness/runs/<id>/`. The score is computed from completion,
+efficiency, tool success, recovery, diff quality, and planning quality.
+
+```bash
+agentic-harness score --workspace . --run latest
+agentic-harness score --workspace . --run latest --json
+agentic-harness code --workspace . --llm auto --score
+agentic-harness code --workspace . --llm auto --score-fail-below 0.70
+```
+
+`code --score` writes `score.md` and `score.json` beside the run artifacts and
+updates `.agentic-harness/runs/latest-score.md` plus
+`.agentic-harness/runs/latest-score.json` for dashboard consumption.
+
+### Dashboard UI Structure
+
+`agentic-harness dashboard --workspace .` is the human status view. The JSON
+form, `agentic-harness dashboard --workspace . --json`, exposes the same panels
+for software agents.
+
+Panel order:
+
+1. Readiness summary
+2. Workspace checks
+3. Templates
+4. Template briefs
+5. Latest coding run
+6. Harness score
+7. Local hosting
+8. Sandbox
+9. Recent sandbox logs
+10. Next commands
+
+The Harness score panel appears when a scored coding run exists. If a latest
+run exists but no score has been generated, the panel shows the exact score
+command to run. In JSON output, the score is exposed as `latestHarnessScore`.
 
 ### Release Packaging
 
