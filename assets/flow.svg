@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 130" width="960" height="130">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,1 L9,5 L0,9 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arr-orange" viewBox="0 0 10 10" refX="9" refY="5"
+      markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,1 L9,5 L0,9 z" fill="#e05d00"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="130" fill="url(#bg)" rx="10"/>
+
+  <!-- Section label -->
+  <text x="480" y="19"
+    text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" font-weight="700" fill="#6b7280" letter-spacing="0.14em">CODING AGENT LOOP</text>
+
+  <!-- ─── Box 1: Inspect  x=155..255, center=205 ─── -->
+  <rect x="155" y="28" width="100" height="48" rx="8"
+    fill="#161b22" stroke="#30363d" stroke-width="1.3"/>
+  <text x="205" y="47" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" font-weight="700" fill="#f0f6fc">Inspect</text>
+  <text x="205" y="64" text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" fill="#6b7280">repo context</text>
+
+  <!-- Arrow 1→2 -->
+  <line x1="256" y1="52" x2="283" y2="52"
+    stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ─── Box 2: Brief  x=285..375, center=330 ─── -->
+  <rect x="285" y="28" width="90" height="48" rx="8"
+    fill="#161b22" stroke="#30363d" stroke-width="1.3"/>
+  <text x="330" y="47" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" font-weight="700" fill="#f0f6fc">Brief</text>
+  <text x="330" y="64" text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" fill="#6b7280">plan + prompt</text>
+
+  <!-- Arrow 2→3 -->
+  <line x1="376" y1="52" x2="403" y2="52"
+    stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ─── Box 3: LLM + Tools  x=405..525, center=465  (highlighted) ─── -->
+  <rect x="405" y="28" width="120" height="48" rx="8"
+    fill="#1a1208" stroke="#e05d00" stroke-width="1.6"/>
+  <text x="465" y="47" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" font-weight="700" fill="#ffa657">LLM + Tools</text>
+  <text x="465" y="64" text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" fill="#8b6030">model · MCP · roles</text>
+
+  <!-- Arrow 3→4 -->
+  <line x1="526" y1="52" x2="553" y2="52"
+    stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ─── Box 4: Edit + Test  x=555..665, center=610 ─── -->
+  <rect x="555" y="28" width="110" height="48" rx="8"
+    fill="#161b22" stroke="#30363d" stroke-width="1.3"/>
+  <text x="610" y="47" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" font-weight="700" fill="#f0f6fc">Edit + Test</text>
+  <text x="610" y="64" text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" fill="#6b7280">apply · cargo test</text>
+
+  <!-- Arrow 4→5 -->
+  <line x1="666" y1="52" x2="693" y2="52"
+    stroke="#6b7280" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- ─── Box 5: Commit · PR  x=695..805, center=750 ─── -->
+  <rect x="695" y="28" width="110" height="48" rx="8"
+    fill="#0d1a10" stroke="#238636" stroke-width="1.3"/>
+  <text x="750" y="47" text-anchor="middle"
+    font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace"
+    font-size="12" font-weight="700" fill="#7ee787">Commit · PR</text>
+  <text x="750" y="64" text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" fill="#3a7040">policy · artifacts</text>
+
+  <!-- ─── Iterate loop: from bottom of box 4 (610,76) → down → left → up to box 1 (205,76) ─── -->
+  <path d="M610,76 L610,110 L205,110 L205,76"
+    fill="none" stroke="#e05d00" stroke-width="1.3"
+    stroke-dasharray="5 3.5" marker-end="url(#arr-orange)" opacity="0.65"/>
+  <text x="408" y="123" text-anchor="middle"
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="10" fill="#e05d00" opacity="0.75">iterate</text>
+</svg>

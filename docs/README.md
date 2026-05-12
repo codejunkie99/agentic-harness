@@ -55,5 +55,3 @@ status, and release checks.
 - **[Release Smoke Test](release-smoke-test.md)** — clean-machine pre-publish
   checklist (`smoke --json`, `release-check --json`, install script, Homebrew
   formula, changelog).
-- **[Flue Migration](flue-migration.md)** — map older TypeScript Flue concepts
-  to native Rust Agentic Harness concepts.

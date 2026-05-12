@@ -20,14 +20,30 @@ agentic-harness smoke --json
 agentic-harness release-check --json
 ```
 
+## Tagged Tarball Install
+
+```sh
+curl -L -o agentic-harness-v0.1.1.tar.gz \
+  https://github.com/codejunkie99/agentic-harness/archive/refs/tags/v0.1.1.tar.gz
+tar -xzf agentic-harness-v0.1.1.tar.gz
+cd agentic-harness-0.1.1
+./scripts/install.sh
+export PATH="$HOME/.agentic-harness/bin:$PATH"
+agentic-harness --version
+agentic-harness smoke --json
+```
+
 ## Homebrew Formula Check
 
 ```sh
 ruby -c Formula/agentic-harness.rb
-brew install --HEAD ./Formula/agentic-harness.rb
+HOMEBREW_DEVELOPER=1 brew install --formula --build-from-source ./Formula/agentic-harness.rb
 agentic-harness --version
 agentic-harness tui --plain
 ```
+
+Use `HOMEBREW_DEVELOPER=1 brew install --formula --HEAD ./Formula/agentic-harness.rb`
+only for an explicit `main` branch smoke test.
 
 ## Runtime Smoke
 
