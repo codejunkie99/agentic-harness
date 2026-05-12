@@ -83,12 +83,15 @@ Set `AGENTIC_HARNESS_PREFIX` to install somewhere other than
 ### Homebrew
 
 ```bash
-brew install --HEAD ./Formula/agentic-harness.rb
+HOMEBREW_DEVELOPER=1 brew install --formula --build-from-source ./Formula/agentic-harness.rb
 agentic-harness --version
 ```
 
-The stable Homebrew formula is updated on `main` after each release tag because
-it needs the GitHub tarball SHA.
+The formula is stored in this repo instead of a Homebrew tap, so local path
+installs need `HOMEBREW_DEVELOPER=1`. Use
+`HOMEBREW_DEVELOPER=1 brew install --formula --HEAD ./Formula/agentic-harness.rb`
+only when you explicitly want the latest `main` branch instead of the tagged
+release.
 
 ## Common Commands
 

@@ -37,13 +37,13 @@ agentic-harness smoke --json
 
 ```sh
 ruby -c Formula/agentic-harness.rb
-brew install --HEAD ./Formula/agentic-harness.rb
+HOMEBREW_DEVELOPER=1 brew install --formula --build-from-source ./Formula/agentic-harness.rb
 agentic-harness --version
 agentic-harness tui --plain
 ```
 
-Update the stable formula on `main` after the release tag exists and the GitHub
-tarball SHA has been computed.
+Use `HOMEBREW_DEVELOPER=1 brew install --formula --HEAD ./Formula/agentic-harness.rb`
+only for an explicit `main` branch smoke test.
 
 ## Runtime Smoke
 
