@@ -130,6 +130,48 @@ fn write_latest_coding_run(project: &Path) {
     .unwrap();
 }
 
+fn write_scoreable_coding_run(project: &Path, id: &str) {
+    let runs = project.join(".agentic-harness/runs");
+    let run_dir = runs.join(id);
+    fs::create_dir_all(&run_dir).unwrap();
+    let run_json = serde_json::to_string_pretty(&json!({
+        "workspace": project.display().to_string(),
+        "id": id,
+        "prompt": "Improve the project",
+        "loop": [
+            {"phase": "inspect", "status": "completed", "detail": "workspace inspected"},
+            {"phase": "plan", "status": "completed", "detail": "2 planned steps"},
+            {"phase": "edit", "status": "completed", "detail": "1 changed file"},
+            {"phase": "test", "status": "passed", "detail": "1/1 check passed"},
+            {"phase": "summarize", "status": "completed", "detail": "summary written"},
+            {"phase": "commit", "status": "skipped", "detail": "no commit requested"},
+            {"phase": "pull-request", "status": "skipped", "detail": "no pull request requested"}
+        ],
+        "plannedSteps": ["Inspect repository", "Run checks"],
+        "rootFiles": ["Cargo.toml"],
+        "projectFiles": ["src/main.rs"],
+        "workspaceInstructions": [],
+        "changedFiles": ["src/main.rs"],
+        "agent": {"status": "passed", "success": true},
+        "checks": [
+            {"command": "cargo test", "status": "passed", "success": true, "exitCode": 0}
+        ]
+    }))
+    .unwrap();
+    fs::write(run_dir.join("run.json"), &run_json).unwrap();
+    fs::write(runs.join("latest.json"), run_json).unwrap();
+    fs::write(
+        run_dir.join("checks.json"),
+        r#"[{"command":"cargo test","status":"passed","success":true,"exitCode":0}]"#,
+    )
+    .unwrap();
+    fs::write(
+        run_dir.join("diff.patch"),
+        "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    )
+    .unwrap();
+}
+
 #[test]
 fn new_scaffolds_a_native_rust_agent_project() {
     let temp = tempfile::tempdir().unwrap();
@@ -2681,6 +2723,159 @@ fn code_command_writes_latest_summary_and_inspect_reads_it() {
 }
 
 #[test]
+fn score_command_scores_latest_run_and_writes_reports() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("score-agent");
+    fs::create_dir_all(&project).unwrap();
+    write_scoreable_coding_run(&project, "score-run");
+
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "score",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--run",
+            "latest",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["runId"], "score-run");
+    assert!(json["score"].as_f64().unwrap() > 0.8);
+    assert_eq!(json["metrics"]["toolSuccess"], 1.0);
+
+    let markdown = project.join("score.md");
+    let json_out = project.join("score.json");
+    let report = Command::new(agentic_harness_bin())
+        .args([
+            "score",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--run",
+            "score-run",
+            "--output",
+            markdown.to_str().unwrap(),
+            "--json-out",
+            json_out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        report.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&report.stderr)
+    );
+    assert!(fs::read_to_string(markdown).unwrap().contains("Harness score"));
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(json_out).unwrap()).unwrap();
+    assert_eq!(written["runId"], "score-run");
+}
+
+#[test]
+fn score_command_fail_below_returns_nonzero() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("score-threshold-agent");
+    fs::create_dir_all(&project).unwrap();
+    write_scoreable_coding_run(&project, "score-run");
+
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "score",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--run",
+            "latest",
+            "--fail-below",
+            "0.999",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("below threshold"));
+}
+
+#[test]
+fn score_command_rejects_path_traversal_run_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("score-path-agent");
+    fs::create_dir_all(&project).unwrap();
+
+    let output = Command::new(agentic_harness_bin())
+        .args([
+            "score",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--run",
+            "../outside",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid run id"));
+}
+
+#[test]
+fn dashboard_exposes_latest_harness_score() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("dashboard-score-agent");
+    fs::create_dir_all(&project).unwrap();
+    write_scoreable_coding_run(&project, "score-run");
+
+    let score = Command::new(agentic_harness_bin())
+        .args([
+            "score",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--run",
+            "latest",
+            "--output",
+            ".agentic-harness/runs/latest-score.md",
+            "--json-out",
+            ".agentic-harness/runs/latest-score.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        score.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&score.stderr)
+    );
+
+    let plain = Command::new(agentic_harness_bin())
+        .args([
+            "dashboard",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--plain",
+        ])
+        .output()
+        .unwrap();
+    let body = String::from_utf8_lossy(&plain.stdout);
+    assert!(body.contains("Harness score"));
+    assert!(body.contains("score:"));
+    assert!(body.contains("completion:"));
+
+    let json = Command::new(agentic_harness_bin())
+        .args([
+            "dashboard",
+            "--workspace",
+            project.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(body["latestHarnessScore"]["runId"], "score-run");
+    assert!(body["latestHarnessScore"]["score"].as_f64().unwrap() > 0.8);
+}
+
+#[test]
 fn code_command_writes_mandatory_run_artifact_bundle() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("artifact-bundle-agent");
@@ -2717,6 +2912,7 @@ fn code_command_writes_mandatory_run_artifact_bundle() {
             "--prompt",
             "Inspect the generated project and record artifacts",
             "--no-tests",
+            "--score",
         ])
         .output()
         .unwrap();
@@ -2734,6 +2930,8 @@ fn code_command_writes_mandatory_run_artifact_bundle() {
         "diff.patch",
         "checks.json",
         "agent-instructions.md",
+        "score.md",
+        "score.json",
     ] {
         assert!(
             run_dir.join(name).exists(),
@@ -2753,10 +2951,16 @@ fn code_command_writes_mandatory_run_artifact_bundle() {
     assert_eq!(run_json["artifacts"]["events"], "events.jsonl");
     assert_eq!(run_json["artifacts"]["diff"], "diff.patch");
     assert_eq!(run_json["artifacts"]["checks"], "checks.json");
+    assert_eq!(run_json["artifacts"]["score"], "score.md");
+    assert_eq!(run_json["artifacts"]["scoreJson"], "score.json");
     assert_eq!(
         run_json["artifacts"]["agentInstructions"],
         "agent-instructions.md"
     );
+    let score_json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(run_dir.join("score.json")).unwrap()).unwrap();
+    assert_eq!(score_json["runId"], "artifact-run");
+    assert!(project.join(".agentic-harness/runs/latest-score.json").exists());
 
     let checks_json: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(run_dir.join("checks.json")).unwrap()).unwrap();
