@@ -1,6 +1,9 @@
 use agentic_harness::{
     AgenticHarnessError, FileStat, HttpSessionEnv, SessionEnv, ShellOptions, ShellOutput,
 };
+use agentic_harness_score::{
+    render_markdown, score_legacy_logs, score_native_run, score_native_run_files, ScoreResult,
+};
 use clap::{Parser, Subcommand};
 use std::collections::{hash_map::DefaultHasher, BTreeMap};
 use std::fs;
@@ -133,7 +136,7 @@ enum Commands {
         /// Prompt passed to the coding agent.
         #[arg(long)]
         prompt: Option<String>,
-        /// Request/session id passed to the coding agent.
+        /// Request/session id passed to the coding agent. Must be a single path segment.
         #[arg(long, default_value = "code")]
         id: String,
         /// Shell check to run after the coding agent. Repeat for multiple checks.
@@ -172,6 +175,12 @@ enum Commands {
         /// Write a machine-readable JSON run summary to this path.
         #[arg(long = "summary-json")]
         summary_json: Option<PathBuf>,
+        /// Score the completed coding run and write score.md / score.json artifacts.
+        #[arg(long)]
+        score: bool,
+        /// Score the completed coding run and fail if the score is below this threshold.
+        #[arg(long = "score-fail-below")]
+        score_fail_below: Option<f64>,
     },
     /// Inspect the latest coding-agent run summary.
     #[command(alias = "inspect", alias = "last")]
@@ -182,6 +191,30 @@ enum Commands {
         /// Print the latest run summary JSON.
         #[arg(long)]
         json: bool,
+    },
+    /// Score a coding run from Agentic Harness artifacts or legacy agent_logs.
+    Score {
+        /// Cargo project containing the native Agentic Harness app.
+        #[arg(long, default_value = ".")]
+        workspace: PathBuf,
+        /// Run id under .agentic-harness/runs, or latest.
+        #[arg(long, default_value = "latest")]
+        run: String,
+        /// Legacy agent_logs directory to score instead of native run artifacts.
+        #[arg(long)]
+        logs: Option<PathBuf>,
+        /// Write Markdown report to this path.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Write JSON report to this path.
+        #[arg(long = "json-out")]
+        json_out: Option<PathBuf>,
+        /// Print JSON to stdout instead of Markdown.
+        #[arg(long)]
+        json: bool,
+        /// Exit 1 when the score is below this threshold.
+        #[arg(long = "fail-below")]
+        fail_below: Option<f64>,
     },
     /// Manage reusable local template packs.
     #[command(alias = "templates", alias = "tpl")]
@@ -651,6 +684,8 @@ fn try_main() -> Result<u8, Box<dyn std::error::Error>> {
             pr,
             summary,
             summary_json,
+            score,
+            score_fail_below,
         }) => code_command(CodeCommandOptions {
             workspace: &workspace,
             prompt,
@@ -667,8 +702,27 @@ fn try_main() -> Result<u8, Box<dyn std::error::Error>> {
             pr,
             summary: summary.as_deref(),
             summary_json: summary_json.as_deref(),
+            score,
+            score_fail_below,
         }),
         Some(Commands::Result { workspace, json }) => result_command(&workspace, json),
+        Some(Commands::Score {
+            workspace,
+            run,
+            logs,
+            output,
+            json_out,
+            json,
+            fail_below,
+        }) => score_command(
+            &workspace,
+            &run,
+            logs.as_deref(),
+            output.as_deref(),
+            json_out.as_deref(),
+            json,
+            fail_below,
+        ),
         Some(Commands::Template { command }) => template_command(command),
         Some(Commands::Setup { command }) => setup_command(command),
         Some(Commands::Hosting { command }) => hosting_command(command),
@@ -801,10 +855,15 @@ struct CodeCommandOptions<'a> {
     pr: bool,
     summary: Option<&'a Path>,
     summary_json: Option<&'a Path>,
+    score: bool,
+    score_fail_below: Option<f64>,
 }
 
 const DEFAULT_CODING_SUMMARY_PATH: &str = ".agentic-harness/runs/latest.md";
 const DEFAULT_CODING_SUMMARY_JSON_PATH: &str = ".agentic-harness/runs/latest.json";
+const DEFAULT_LATEST_SCORE_PATH: &str = ".agentic-harness/runs/latest-score.md";
+const DEFAULT_LATEST_SCORE_JSON_PATH: &str = ".agentic-harness/runs/latest-score.json";
+const MAX_SCORE_ARTIFACT_BYTES: u64 = 5 * 1024 * 1024;
 
 fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::error::Error>> {
     let CodeCommandOptions {
@@ -823,7 +882,10 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         pr,
         summary,
         summary_json,
+        score,
+        score_fail_below,
     } = options;
+    validate_run_id(id)?;
     let llm_environment = llm.map(LlmAuthoringEnvironment::parse).transpose()?;
     let policy = CodingPolicy::new(
         allow_paths.to_vec(),
@@ -979,6 +1041,7 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
     };
     let agent_code = agent_output.status.code().unwrap_or(1) as u8;
     let mut checks_failed = check_results.iter().any(|result| !result.success);
+    let mut repair_result = None::<CodingRepairResult>;
     if agent_code == 0 && !patch_failed && !llm_failed && checks_failed {
         let failed_count = check_results
             .iter()
@@ -1027,6 +1090,9 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
             &[],
         )?;
         io::stderr().write_all(&repair_output.stderr)?;
+        let patches_before_repair = patch_results.len();
+        let mut repair_success = false;
+        let mut checks_passed_after = false;
         if repair_output.status.success() {
             for path in write_agent_generated_patches(&repair_output)? {
                 coding_progress("patch", &path.display().to_string());
@@ -1036,8 +1102,17 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
             if !patch_failed {
                 check_results = run_coding_checks(&workspace, &sandbox_config, &checks);
                 checks_failed = check_results.iter().any(|result| !result.success);
+                checks_passed_after = !checks_failed;
             }
+            repair_success = !patch_failed && checks_passed_after;
         }
+        repair_result = Some(CodingRepairResult {
+            attempted: true,
+            success: repair_success,
+            failed_checks_before: failed_count,
+            checks_passed_after,
+            patches_applied: patch_results.len().saturating_sub(patches_before_repair),
+        });
     }
     let commit_result = if agent_code == 0 && !patch_failed && !llm_failed && !checks_failed {
         commit.map(|message| {
@@ -1084,6 +1159,7 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         agent_output: &agent_output,
         llm: llm_result.as_ref(),
         patches: &patch_results,
+        repair: repair_result.as_ref(),
         commit: commit_result.as_ref(),
         pull_request: pr_result.as_ref(),
         checks: &check_results,
@@ -1110,6 +1186,21 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         write_coding_summary_json(&path, &coding_summary)?;
     }
 
+    let mut score_failed = false;
+    if score || score_fail_below.is_some() {
+        coding_progress("score", id);
+        let score_result = write_score_artifacts_for_run(&workspace, id)?;
+        if let Some(threshold) = score_fail_below {
+            if score_result.score < threshold {
+                eprintln!(
+                    "[agentic-harness] score {:.3} is below threshold {:.3}",
+                    score_result.score, threshold
+                );
+                score_failed = true;
+            }
+        }
+    }
+
     if agent_code != 0 {
         return Ok(agent_code);
     }
@@ -1126,6 +1217,9 @@ fn code_command(options: CodeCommandOptions<'_>) -> Result<u8, Box<dyn std::erro
         return Ok(1);
     }
     if pr_result.as_ref().is_some_and(|result| !result.success) {
+        return Ok(1);
+    }
+    if score_failed {
         return Ok(1);
     }
     Ok(0)
@@ -1400,6 +1494,15 @@ struct CodingPullRequestResult {
 }
 
 #[derive(Debug)]
+struct CodingRepairResult {
+    attempted: bool,
+    success: bool,
+    failed_checks_before: usize,
+    checks_passed_after: bool,
+    patches_applied: usize,
+}
+
+#[derive(Debug)]
 struct WorkspaceInstruction {
     path: String,
     content: String,
@@ -1424,6 +1527,7 @@ struct CodingSummary<'a> {
     agent_output: &'a Output,
     llm: Option<&'a CodingLlmResult>,
     patches: &'a [CodingPatchResult],
+    repair: Option<&'a CodingRepairResult>,
     commit: Option<&'a CodingCommitResult>,
     pull_request: Option<&'a CodingPullRequestResult>,
     checks: &'a [CodingCheckResult],
@@ -2487,6 +2591,15 @@ fn render_coding_summary_json(
                 "stderr": trim_for_summary(&patch.stderr),
             })
         }).collect::<Vec<_>>(),
+        "repair": summary.repair.map(|repair| {
+            serde_json::json!({
+                "attempted": repair.attempted,
+                "success": repair.success,
+                "failedChecksBefore": repair.failed_checks_before,
+                "checksPassedAfter": repair.checks_passed_after,
+                "patchesApplied": repair.patches_applied,
+            })
+        }),
         "commit": summary.commit.map(|commit| {
             serde_json::json!({
                 "message": commit.message,
@@ -2558,6 +2671,18 @@ fn render_coding_events_jsonl(
     });
     out.push_str(&serde_json::to_string(&policy)?);
     out.push('\n');
+    if let Some(repair) = summary.repair {
+        let repair = serde_json::json!({
+            "type": "repair",
+            "attempted": repair.attempted,
+            "success": repair.success,
+            "failedChecksBefore": repair.failed_checks_before,
+            "checksPassedAfter": repair.checks_passed_after,
+            "patchesApplied": repair.patches_applied,
+        });
+        out.push_str(&serde_json::to_string(&repair)?);
+        out.push('\n');
+    }
     Ok(out)
 }
 
@@ -2833,6 +2958,29 @@ fn render_coding_summary(summary: &CodingSummary<'_>) -> String {
         }
     }
 
+    out.push_str("\n## Repair\n\n");
+    if let Some(repair) = summary.repair {
+        out.push_str(&format!(
+            "status: {}\n\n",
+            if repair.success {
+                "recovered"
+            } else {
+                "attempted"
+            }
+        ));
+        out.push_str(&format!(
+            "failed checks before repair: {}\n\n",
+            repair.failed_checks_before
+        ));
+        out.push_str(&format!(
+            "checks passed after repair: {}\n\n",
+            repair.checks_passed_after
+        ));
+        out.push_str(&format!("patches applied: {}\n", repair.patches_applied));
+    } else {
+        out.push_str("No repair pass was needed.\n");
+    }
+
     out.push_str("\n## Commit\n\n");
     if let Some(commit) = summary.commit {
         out.push_str(&format!("message: {}\n\n", commit.message));
@@ -2927,6 +3075,8 @@ fn coding_artifacts_json() -> serde_json::Value {
         "diff": "diff.patch",
         "checks": "checks.json",
         "agentInstructions": "agent-instructions.md",
+        "score": "score.md",
+        "scoreJson": "score.json",
     })
 }
 
@@ -5433,6 +5583,169 @@ fn result_command(workspace: &Path, json: bool) -> Result<u8, Box<dyn std::error
     Ok(0)
 }
 
+fn score_command(
+    workspace: &Path,
+    run: &str,
+    logs: Option<&Path>,
+    output: Option<&Path>,
+    json_out: Option<&Path>,
+    json: bool,
+    fail_below: Option<f64>,
+) -> Result<u8, Box<dyn std::error::Error>> {
+    let mut result = score_result_for_request(workspace, run, logs)?;
+
+    if let Some(output) = output {
+        let path = resolve_workspace_output_path(workspace, output);
+        result.artifacts.markdown = Some(path.display().to_string());
+        write_score_markdown(&path, &result)?;
+    }
+    if let Some(json_out) = json_out {
+        let path = resolve_workspace_output_path(workspace, json_out);
+        result.artifacts.json = Some(path.display().to_string());
+        write_score_json(&path, &result)?;
+    }
+
+    if json {
+        print!("{}", serde_json::to_string_pretty(&result)?);
+        println!();
+    } else if output.is_none() {
+        print!("{}", render_markdown(&result));
+    }
+
+    if let Some(threshold) = fail_below {
+        if result.score < threshold {
+            eprintln!(
+                "[agentic-harness] score {:.3} is below threshold {:.3}",
+                result.score, threshold
+            );
+            return Ok(1);
+        }
+    }
+    Ok(0)
+}
+
+fn score_result_for_request(
+    workspace: &Path,
+    run: &str,
+    logs: Option<&Path>,
+) -> Result<ScoreResult, Box<dyn std::error::Error>> {
+    if let Some(logs) = logs {
+        return Ok(score_legacy_logs(logs)?);
+    }
+
+    let runs_dir = workspace.join(".agentic-harness/runs");
+    if run == "latest" {
+        let latest = runs_dir.join("latest.json");
+        if !latest.exists() {
+            return Err(format!(
+                "No latest coding run found at {}. Run `agentic-harness code --workspace {} --prompt \"Describe the software change\"` first.",
+                latest.display(),
+                workspace.display()
+            )
+            .into());
+        }
+        let latest_body = read_score_artifact_text(&latest)?;
+        let latest_json: serde_json::Value = serde_json::from_str(&latest_body)?;
+        if let Some(id) = latest_json.get("id").and_then(serde_json::Value::as_str) {
+            if validate_run_id(id).is_ok() {
+                let run_dir = runs_dir.join(id);
+                if run_dir.join("run.json").exists() {
+                    return Ok(score_native_run(&run_dir)?);
+                }
+            }
+        }
+        return Ok(score_native_run_files(&latest, None, None)?);
+    }
+
+    validate_run_id(run)?;
+    let run_dir = runs_dir.join(run);
+    if !run_dir.join("run.json").exists() {
+        return Err(format!(
+            "No coding run found at {}. Use `agentic-harness score --workspace {} --run latest` or run `agentic-harness code` first.",
+            run_dir.join("run.json").display(),
+            workspace.display()
+        )
+        .into());
+    }
+    Ok(score_native_run(&run_dir)?)
+}
+
+fn write_score_artifacts_for_run(
+    workspace: &Path,
+    id: &str,
+) -> Result<ScoreResult, Box<dyn std::error::Error>> {
+    validate_run_id(id)?;
+    let run_dir = coding_run_dir(workspace, id);
+    let mut result = score_native_run(&run_dir)?;
+    let score_md = run_dir.join("score.md");
+    let score_json = run_dir.join("score.json");
+    result.artifacts.markdown = Some(score_md.display().to_string());
+    result.artifacts.json = Some(score_json.display().to_string());
+    write_score_markdown(&score_md, &result)?;
+    write_score_json(&score_json, &result)?;
+
+    let latest_md = workspace.join(DEFAULT_LATEST_SCORE_PATH);
+    let latest_json = workspace.join(DEFAULT_LATEST_SCORE_JSON_PATH);
+    let mut latest_result = result.clone();
+    latest_result.artifacts.markdown = Some(latest_md.display().to_string());
+    latest_result.artifacts.json = Some(latest_json.display().to_string());
+    write_score_markdown(&latest_md, &latest_result)?;
+    write_score_json(&latest_json, &latest_result)?;
+
+    coding_progress("score", &score_md.display().to_string());
+    coding_progress("score-json", &score_json.display().to_string());
+    Ok(result)
+}
+
+fn write_score_markdown(
+    path: &Path,
+    result: &ScoreResult,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, render_markdown(result))?;
+    Ok(())
+}
+
+fn write_score_json(path: &Path, result: &ScoreResult) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, format!("{}\n", serde_json::to_string_pretty(result)?))?;
+    Ok(())
+}
+
+fn read_score_artifact_text(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let metadata = fs::metadata(path)?;
+    if metadata.len() > MAX_SCORE_ARTIFACT_BYTES {
+        return Err(format!(
+            "score artifact {} is {} bytes, above the limit of {} bytes",
+            path.display(),
+            metadata.len(),
+            MAX_SCORE_ARTIFACT_BYTES
+        )
+        .into());
+    }
+    Ok(fs::read_to_string(path)?)
+}
+
+fn validate_run_id(id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if id.trim().is_empty()
+        || id == "."
+        || id == ".."
+        || id.contains('/')
+        || id.contains('\\')
+        || Path::new(id).is_absolute()
+    {
+        return Err(format!(
+            "invalid run id {id:?}; use a single path segment such as \"code\" or \"ci-123\""
+        )
+        .into());
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct GuideStep {
     id: &'static str,
@@ -6763,6 +7076,24 @@ fn format_dashboard_report(
         out.push_str("  - none\n");
     }
 
+    out.push('\n');
+    out.push_str("Harness score\n");
+    if let Some(score) = latest_harness_score_json(workspace) {
+        for line in latest_harness_score_lines(&score) {
+            out.push_str(&format!("  - {line}\n"));
+        }
+    } else {
+        out.push_str("  - none\n");
+        if latest_coding_run_json(workspace).is_some() {
+            out.push_str(&format!(
+                "  - next: agentic-harness score --workspace {} --run latest --output {} --json-out {}\n",
+                workspace.display(),
+                DEFAULT_LATEST_SCORE_PATH,
+                DEFAULT_LATEST_SCORE_JSON_PATH
+            ));
+        }
+    }
+
     let hosting = hosting_status(workspace);
     out.push('\n');
     out.push_str("Local hosting\n");
@@ -6836,6 +7167,7 @@ fn format_dashboard_json(
         "templates": dashboard_template_json_entries(workspace)?,
         "templateBriefs": dashboard_template_brief_json_entries(workspace)?,
         "latestCodingRun": latest_coding_run_json(workspace),
+        "latestHarnessScore": latest_harness_score_json(workspace),
         "localHosting": dashboard_hosting_json(workspace),
         "sandbox": dashboard_sandbox_json(workspace),
         "recentSandboxLogs": recent_sandbox_logs(workspace, 5),
@@ -7057,8 +7389,48 @@ fn latest_coding_changed_files(run: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
+fn latest_harness_score_json(workspace: &Path) -> Option<serde_json::Value> {
+    read_score_artifact_text(&workspace.join(DEFAULT_LATEST_SCORE_JSON_PATH))
+        .ok()
+        .and_then(|content| serde_json::from_str(&content).ok())
+}
+
+fn latest_harness_score_lines(score: &serde_json::Value) -> Vec<String> {
+    let mut lines = Vec::new();
+    let score_value = score.get("score").and_then(serde_json::Value::as_f64);
+    let grade = score.get("grade").and_then(serde_json::Value::as_str);
+    if let (Some(score_value), Some(grade)) = (score_value, grade) {
+        lines.push(format!("score: {score_value:.3} / {grade}"));
+    }
+    if let Some(metrics) = score.get("metrics").and_then(serde_json::Value::as_object) {
+        for (label, key) in [
+            ("completion", "completion"),
+            ("efficiency", "efficiency"),
+            ("tool success", "toolSuccess"),
+            ("recovery", "recovery"),
+            ("diff quality", "diffQuality"),
+            ("planning quality", "planningQuality"),
+        ] {
+            if let Some(value) = metrics.get(key).and_then(serde_json::Value::as_f64) {
+                lines.push(format!("{label}: {value:.3}"));
+            }
+        }
+    }
+    if let Some(report) = score
+        .get("artifacts")
+        .and_then(|artifacts| artifacts.get("markdown"))
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("report: {report}"));
+    }
+    if lines.is_empty() {
+        lines.push("unavailable".to_string());
+    }
+    lines
+}
+
 fn dashboard_next_commands(workspace: &Path) -> Vec<String> {
-    vec![
+    let mut commands = vec![
         format!("agentic-harness start --workspace {}", workspace.display()),
         format!(
             "agentic-harness template list --workspace {} --verbose",
@@ -7076,7 +7448,15 @@ fn dashboard_next_commands(workspace: &Path) -> Vec<String> {
             "agentic-harness doctor --workspace {} --plain",
             workspace.display()
         ),
-    ]
+    ];
+    if latest_coding_run_json(workspace).is_some() && latest_harness_score_json(workspace).is_none()
+    {
+        commands.push(format!(
+            "agentic-harness score --workspace {} --run latest",
+            workspace.display()
+        ));
+    }
+    commands
 }
 
 fn brief_request_summary(content: &str) -> String {
@@ -7671,6 +8051,8 @@ fn run_wizard_action(
             pr: false,
             summary: None,
             summary_json: None,
+            score: false,
+            score_fail_below: None,
         }),
         WizardAction::CodeCurrentWithAutoLlm => code_command(CodeCommandOptions {
             workspace,
@@ -7688,6 +8070,8 @@ fn run_wizard_action(
             pr: false,
             summary: None,
             summary_json: None,
+            score: false,
+            score_fail_below: None,
         }),
         WizardAction::CodeWorkspace => {
             let workspace = prompt_path_default("Workspace", Path::new("."))?;
@@ -7708,6 +8092,8 @@ fn run_wizard_action(
                 pr: false,
                 summary: None,
                 summary_json: None,
+                score: false,
+                score_fail_below: None,
             })
         }
         WizardAction::ScaffoldCodingProject => {
@@ -8283,6 +8669,13 @@ fn render_coding_wizard_panel(workspace: &Path, color: bool) -> String {
         .map(|run| latest_coding_loop_lines(&run).join(", "))
         .filter(|line| !line.is_empty())
         .unwrap_or_else(|| "none yet".to_string());
+    let latest_score = latest_harness_score_json(workspace)
+        .and_then(|score| {
+            let value = score.get("score")?.as_f64()?;
+            let grade = score.get("grade")?.as_str()?;
+            Some(format!("{value:.3} / {grade}"))
+        })
+        .unwrap_or_else(|| "none yet".to_string());
     let tools = llm_tool_status();
 
     if color {
@@ -8292,12 +8685,13 @@ fn render_coding_wizard_panel(workspace: &Path, color: bool) -> String {
 {MUTED}│{RESET}  {WHITE}LLM tools{RESET}: {tools}\n\
 {MUTED}│{RESET}  {WHITE}Latest result{RESET}: {latest}\n\
 {MUTED}│{RESET}  {WHITE}Latest loop{RESET}: {latest_loop}\n\
+{MUTED}│{RESET}  {WHITE}Latest score{RESET}: {latest_score}\n\
 {MUTED}│{RESET}  {WHITE}Inspect{RESET}: agentic-harness inspect --workspace {workspace_arg}\n",
             workspace.display()
         )
     } else {
         format!(
-            "Coding panel:\n  Workspace: {}\n  LLM tools: {tools}\n  Latest result: {latest}\n  Latest loop: {latest_loop}\n  Inspect: agentic-harness inspect --workspace {workspace_arg}\n",
+            "Coding panel:\n  Workspace: {}\n  LLM tools: {tools}\n  Latest result: {latest}\n  Latest loop: {latest_loop}\n  Latest score: {latest_score}\n  Inspect: agentic-harness inspect --workspace {workspace_arg}\n",
             workspace.display()
         )
     }

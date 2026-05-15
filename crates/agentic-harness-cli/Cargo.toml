@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 agentic-harness = { path = "../agentic-harness" }
+agentic-harness-score = { path = "../agentic-harness-score" }
 serde_json.workspace = true
 
 [dev-dependencies]

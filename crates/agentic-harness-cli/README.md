@@ -12,11 +12,13 @@ bundling JavaScript or a TypeScript runtime.
 agentic-harness guide --workspace .
 agentic-harness doctor --workspace . --json
 agentic-harness code --workspace . --llm auto --prompt "Fix the failing tests"
+agentic-harness score --workspace . --run latest
 agentic-harness inspect --workspace .
 ```
 
 Use `guide` for the shortest setup path, `doctor` for readiness, `code` for the
-coding-agent loop, and `inspect` for the latest run summary.
+coding-agent loop, `score` for run quality, and `inspect` for the latest run
+summary.
 
 ## Command Map
 
@@ -26,6 +28,8 @@ coding-agent loop, and `inspect` for the latest run summary.
 - `agentic-harness doctor` checks workspace readiness; `check` is an alias.
 - `agentic-harness dashboard` shows workspace status; `status` is an alias.
 - `agentic-harness code` runs the coding-agent loop.
+- `agentic-harness score` evaluates a coding run and can gate CI with
+  `--fail-below`.
 - `agentic-harness inspect` reads the latest coding-run summary.
 - `agentic-harness template` manages reusable template packs; `templates` and
   `tpl` are aliases.

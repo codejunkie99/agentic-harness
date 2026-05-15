@@ -173,7 +173,18 @@ roadmap: future work belongs in [`immediate-goals.md`](immediate-goals.md).
   template helpers; tests `template_*`, `setup_*`, `sandbox_*`,
   `code_command_*`.
 
-### 17. Release Packaging
+### 17. HarnessScore Evaluation
+
+- Status: Covered with native run scoring, legacy `agent_logs` scoring,
+  Markdown/JSON reports, `code --score`, threshold gates, dashboard exposure,
+  and latest score artifacts.
+- Evidence: `crates/agentic-harness-score`, `Commands::Score`,
+  `score_command`, `write_score_artifacts_for_run`,
+  `latest_harness_score_json`; tests in `crates/agentic-harness-score/tests/`
+  plus CLI tests `score_command_*`, `dashboard_exposes_latest_harness_score`,
+  and `code_command_writes_mandatory_run_artifact_bundle`.
+
+### 18. Release Packaging
 
 - Status: Covered for pre-release distribution checks and local binary package
   staging.
@@ -185,7 +196,7 @@ roadmap: future work belongs in [`immediate-goals.md`](immediate-goals.md).
   `release_check_reports_packaging_readiness_as_text_and_json`,
   `smoke_command_reports_install_readiness_as_text_and_json`.
 
-### 18. Migration and Deployment Examples
+### 19. Migration and Deployment Examples
 
 - Status: Covered with dedicated docs for Node hosts, Cloudflare Workers, GitHub
   Actions, GitLab CI, sandbox connectors, virtual sandboxing, and migration from

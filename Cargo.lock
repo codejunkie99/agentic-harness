@@ -19,9 +19,20 @@ name = "agentic-harness-cli"
 version = "0.1.1"
 dependencies = [
  "agentic-harness",
+ "agentic-harness-score",
  "clap",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "agentic-harness-score"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

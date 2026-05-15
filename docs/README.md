@@ -47,6 +47,9 @@ status, and release checks.
 
 - **[Feature Status](feature-status.md)** — capability matrix with code, tests,
   and docs evidence for every major surface.
+- **HarnessScore** — documented in the top-level README and feature status;
+  use `agentic-harness score --workspace . --run latest` to evaluate run
+  artifacts and expose `latestHarnessScore` in dashboard JSON.
 - **[Roadmap](immediate-goals.md)** — the next product slice and explicit
   non-goals.
 - **[Release Smoke Test](release-smoke-test.md)** — clean-machine pre-publish
